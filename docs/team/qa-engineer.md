@@ -24,7 +24,7 @@ What to run
 
 Project rules to check on every issue
 
-These come from `AGENTS.md`, `_docs/process.md` and the issue's
+These come from `AGENTS.md`, `docs/process.md` and the issue's
 constraints. Breaking one is a FAIL even if every criterion passes.
 
 - Money is `Decimal` in code and a string in JSON, never a float
@@ -67,7 +67,7 @@ Definition of done:
 - Nothing in the code was changed
 
 For issues the accounting reviewer covers (see
-`_docs/team/accounting-reviewer.md`), a QA PASS is not enough to close
+`docs/team/accounting-reviewer.md`), a QA PASS is not enough to close
 the issue. Say in your comment that it is waiting for accounting
 review.
 

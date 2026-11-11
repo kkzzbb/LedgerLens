@@ -1,10 +1,10 @@
 # AGENTS.md
 
-LedgerLens backend: Python 3.12, managed with uv. Design docs live in `_docs/`.
+LedgerLens backend: Python 3.12, managed with uv. Design docs live in `docs/`.
 
 Documents
 
-- `_docs/process.md` - how work is organized
+- `docs/process.md` - how work is organized
 
 Commands
 
