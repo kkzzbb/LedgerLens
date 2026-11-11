@@ -14,5 +14,8 @@ One or two sentences on what should be true when this is done.
 ## Constraints
 
 - Files this should stay inside
-- Libraries to use
+- Libraries to use (new ones listed here are approved with the issue)
+- New settings with their defaults
 - Guidelines to follow
+- Depends on #TASK-NUMBER
+- Reference: `_docs/...` and section
