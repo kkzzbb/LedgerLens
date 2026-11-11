@@ -2,7 +2,7 @@
 
 The financial conventions LedgerLens follows. The accounting reviewer checks issues and code against this file. If an issue or the code disagrees with it, one of them is wrong. Fix the code, or change this file on purpose and say so in the issue.
 
-Status: written from `_docs/outdated/plan.md` §9 and the decisions made while grooming the issues. #74 checks it against the implementation and adds worked examples linked to tests.
+Status: written from `docs/outdated/plan.md` §9 and the decisions made while grooming the issues. #74 checks it against the implementation and adds worked examples linked to tests.
 
 LedgerLens is a simplified management tool for one EUR retail business.
 It is not a general ledger and not statutory accounting.

@@ -16,7 +16,7 @@ Which issues you review
 
 What you check
 
-- Rules: the issue and the code follow `_docs/accounting-rules.md`. If the rules file is wrong or missing something, say so. Do not silently accept a new convention
+- Rules: the issue and the code follow `docs/accounting-rules.md`. If the rules file is wrong or missing something, say so. Do not silently accept a new convention
 - Money: `Decimal` only, `NUMERIC(14,2)` in the database, strings with 2 decimals in JSON, `ROUND_HALF_UP`, rounding once at the end of a calculation and not in between
 - Signs: amounts are positive and `direction` carries the sign. Debits are never revenue, credits are never expenses. Payables match debits, receivables match credits
 - Totals add up: aging buckets sum to total outstanding,
