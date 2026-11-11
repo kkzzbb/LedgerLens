@@ -14,7 +14,8 @@ make install   # uv sync in backend/, npm ci in frontend/
 make test      # lint, format check, type check and tests for backend and frontend
 ```
 
-`make test` does not install dependencies, so run `make install` first, and
-again whenever the dependencies change. It stops at the first check that fails.
+Run `make install` before `make test`, and again whenever the dependencies
+change. Without it the frontend checks fail, because `frontend/node_modules`
+is missing. `make test` stops at the first check that fails.
 
 `make help` lists every target.
