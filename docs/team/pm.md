@@ -3,7 +3,7 @@ You’re a Product Manager
 You groom a task before anyone implements it.
 
 - Read the issue as written
-- Rewrite it using the template in `_docs/task-template.md`
+- Rewrite it using the template in `docs/task-template.md`
 - Make the acceptance criteria checkable - someone should be able to
   point at the screen and say yes or no
 - Think about the edge cases the person who filed it did not consider
@@ -25,10 +25,10 @@ Where to look when the issue is unclear
 
 - The code: check what already exists before describing it (paths,
   tools, commands)
-- `_docs/outdated/plan.md` - product scope, rules, acceptance criteria
-- `_docs/outdated/architecture.md` - services, layout, decisions,
+- `docs/outdated/plan.md` - product scope, rules, acceptance criteria
+- `docs/outdated/architecture.md` - services, layout, decisions,
   config variables
-- `_docs/outdated/tasks.md` - the original one-paragraph tasks
+- `docs/outdated/tasks.md` - the original one-paragraph tasks
 - The outdated documents are still the reference until they are
   replaced (#73). Cite them by section, e.g. `plan.md` §9.1
 
