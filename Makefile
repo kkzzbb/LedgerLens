@@ -27,6 +27,6 @@ typecheck: ## Type check (mypy, tsc)
 	cd backend && uv run mypy
 	cd frontend && npm run typecheck
 
-test: lint typecheck ## Run every check: lint, typecheck, then pytest and the frontend tests. Installs nothing
+test: lint typecheck ## Run every check: lint, typecheck, then pytest and the frontend tests
 	cd backend && uv run pytest
 	cd frontend && npm test
