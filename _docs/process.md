@@ -4,6 +4,18 @@
 Roles
 
 - PM - grooms a task before anyone implements it, follows _docs/team/pm.md
+- Engineer - implements one groomed task, follows _docs/team/software-engineer.md
+- QA - checks the result against the acceptance criteria, follows _docs/team/qa-engineer.md
+- Accounting reviewer - checks financial issues before and after implementation, follows _docs/team/accounting-reviewer.md
+
+Flow
+
+- PM grooms → Accounting reviewer checks the issue (financial issues
+  only) → Engineer implements → QA → Accounting reviewer checks the
+  implementation (financial issues only) → close
+- A FAIL at any step sends the issue back to the step before it
+- Financial rules (rounding, aging, formulas, thresholds) are written
+  in `_docs/accounting-rules.md`
 
 Issues
 
