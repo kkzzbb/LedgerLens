@@ -8,6 +8,13 @@ Documents
 
 Commands
 
+Run from the repo root:
+
+- `make install` - install backend and frontend dependencies
+- `make lint` - lint and format check, backend and frontend (reports only)
+- `make typecheck` - type check, backend and frontend
+- `make test` - lint, format check, type check and every test suite
+
 Run from `backend/`:
 
 - `uv sync` - install dependencies
@@ -32,4 +39,5 @@ Rules
   add one without asking
 - Money is always `Decimal`, never `float`
 - `ledgerlens/domain/` stays pure: no I/O and no framework imports
-- Lint, format, type check and tests must pass before a commit
+- Lint, format, type check and tests must pass before a commit: run
+  `make test` from the repo root
