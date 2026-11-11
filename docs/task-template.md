@@ -18,4 +18,4 @@ One or two sentences on what should be true when this is done.
 - New settings with their defaults
 - Guidelines to follow
 - Depends on #TASK-NUMBER
-- Reference: `_docs/...` and section
+- Reference: `docs/...` and section
