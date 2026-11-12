@@ -13,7 +13,9 @@ or only whitespace counts as unset. No backend variable is read.
 """
 
 import os
+import re
 import sys
+from datetime import date
 from functools import lru_cache
 from typing import Annotated, Any
 
@@ -29,6 +31,8 @@ from pydantic.fields import FieldInfo
 from pydantic_core import ErrorDetails, PydanticCustomError
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
+from demobank.db.url import UnsupportedSchemeError, database_url
+
 _BOOLEANS = {"true": True, "1": True, "false": False, "0": False}
 
 # Error types raised by the validators below. The line shown to the operator
@@ -36,6 +40,14 @@ _BOOLEANS = {"true": True, "1": True, "false": False, "0": False}
 _NOT_BOOLEAN = "not_boolean"
 _ADMIN_KEY_MISSING = "admin_key_missing"
 _ADMIN_KEY_EQUALS_API_KEY = "admin_key_equals_api_key"
+_UNSUPPORTED_SCHEME = "unsupported_scheme"
+_INVALID_URL = "invalid_url"
+_NOT_SEED = "not_seed"
+_NOT_DATE = "not_date"
+
+# ASCII digits only: `int()` would also take "+5", "1_000" or other digits.
+_SEED = re.compile(r"[0-9]+", re.ASCII)
+_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", re.ASCII)
 
 
 class ConfigError(Exception):
@@ -56,6 +68,33 @@ def _parse_bool(value: Any) -> Any:
 
 
 _EnvBool = Annotated[bool, BeforeValidator(_parse_bool)]
+
+
+def _parse_seed(value: Any) -> Any:
+    if isinstance(value, str):
+        if not _SEED.fullmatch(value.strip()):
+            raise PydanticCustomError(_NOT_SEED, "not a non-negative integer")
+        return int(value.strip())
+    return value
+
+
+def _parse_date(value: Any) -> Any:
+    if isinstance(value, str):
+        text = value.strip()
+        parsed: date | None = None
+        if _DATE.fullmatch(text):
+            try:
+                parsed = date.fromisoformat(text)
+            except ValueError:
+                parsed = None
+        if parsed is None:
+            raise PydanticCustomError(_NOT_DATE, "not a YYYY-MM-DD date")
+        return parsed
+    return value
+
+
+_Seed = Annotated[int, BeforeValidator(_parse_seed)]
+_AnchorDate = Annotated[date | None, BeforeValidator(_parse_date)]
 
 
 def env_name(field_name: str) -> str:
@@ -94,6 +133,14 @@ class Settings(BaseSettings):
     # Validated even when unset, so a missing key is caught when admin is on.
     demobank_admin_key: SecretStr = Field(default=SecretStr(""), validate_default=True)
 
+    # Required: the PostgreSQL database holding the `demobank_sim` schema (#9).
+    # A secret: it embeds the database password.
+    demobank_database_url: SecretStr
+    # Optional: the seed and the last day of the generated history (#9). An
+    # unset anchor date means "the date of first generation".
+    demobank_seed: _Seed = 42
+    demobank_anchor_date: _AnchorDate = None
+
     @field_validator("demobank_admin_key")
     @classmethod
     def _admin_key_when_enabled(cls, admin_key: SecretStr, info: ValidationInfo) -> SecretStr:
@@ -109,6 +156,21 @@ class Settings(BaseSettings):
         if api_key is not None and value == api_key.get_secret_value():
             raise PydanticCustomError(_ADMIN_KEY_EQUALS_API_KEY, "admin key equals API key")
         return admin_key
+
+    @field_validator("demobank_database_url")
+    @classmethod
+    def _postgres_url(cls, url: SecretStr) -> SecretStr:
+        kind = None
+        try:
+            database_url(url.get_secret_value())
+        except UnsupportedSchemeError:
+            kind = _UNSUPPORTED_SCHEME
+        except ValueError:
+            kind = _INVALID_URL
+        # Raised outside the `except` block so nothing holding the URL is chained.
+        if kind is not None:
+            raise PydanticCustomError(kind, "invalid database URL")
+        return url
 
     @classmethod
     def settings_customise_sources(
@@ -136,6 +198,12 @@ def _problem(error: ErrorDetails) -> str:
         return f"{name} is required but not set (an empty or blank value counts as unset)"
     if kind == _NOT_BOOLEAN:
         return f"{name} must be true, false, 1 or 0"
+    if kind == _UNSUPPORTED_SCHEME:
+        return f"{name} has an unsupported scheme; expected postgresql://"
+    if kind == _NOT_SEED:
+        return f"{name} must be a non-negative integer"
+    if kind == _NOT_DATE:
+        return f"{name} must be a date in YYYY-MM-DD format"
     return f"{name} has an invalid value"
 
 
