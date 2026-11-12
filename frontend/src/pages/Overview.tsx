@@ -106,8 +106,24 @@ export function Overview({ today = new Date() }: { today?: Date }) {
       Promise.all([
         queryClient.invalidateQueries({ queryKey: ["accounts"] }),
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
+        queryClient.invalidateQueries({ queryKey: ["anomalies"] }),
       ]),
   });
+
+  let syncResult;
+  if (sync.isSuccess) {
+    const anomalies = sync.data.anomalies;
+    const created = anomalies.reduce((sum, a) => sum + a.created_count, 0);
+    const text = `New potential issues: ${String(created)}`;
+    syncResult = (
+      <>
+        <p>{created > 0 ? <Link to="/alerts">{text}</Link> : text}</p>
+        {anomalies.some((a) => a.error !== null) && (
+          <p>Some anomaly checks did not run</p>
+        )}
+      </>
+    );
+  }
 
   let accountsContent;
   if (accounts.isPending) {
@@ -206,6 +222,7 @@ export function Overview({ today = new Date() }: { today?: Date }) {
           >
             {sync.isPending ? "Syncing…" : "Sync now"}
           </button>
+          {syncResult}
           {sync.isError && (
             <p role="alert">Sync failed: {toApiError(sync.error).message}</p>
           )}

@@ -67,8 +67,15 @@ export interface AccountSyncResponse {
   error: string | null
 }
 
+export interface AnomalyRuleResponse {
+  rule: string
+  created_count: number
+  error: string | null
+}
+
 export interface SyncResponse {
   accounts: AccountSyncResponse[]
+  anomalies: AnomalyRuleResponse[]
 }
 
 export interface MonthResponse {
@@ -102,4 +109,37 @@ export interface ExpensesReportResponse {
   to: string
   currency: string
   categories: CategoryReportResponse[]
+}
+
+export interface FlaggedTransactionResponse {
+  id: number
+  booking_date: string
+  counterparty_name: string | null
+  amount: string
+  category: string | null
+}
+
+export interface AnomalyFlagResponse {
+  id: number
+  rule: string
+  status: string
+  reason: string
+  created_at: string
+  reviewed_at: string | null
+  transaction: FlaggedTransactionResponse
+  related_transaction: FlaggedTransactionResponse | null
+}
+
+export interface AnomalyFlagListResponse {
+  items: AnomalyFlagResponse[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface AnomalyParams {
+  status?: 'open' | 'reviewed'
+  rule?: 'possible_duplicate' | 'large_expense'
+  limit?: number
+  offset?: number
 }
