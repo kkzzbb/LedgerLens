@@ -21,10 +21,8 @@ from typing import Annotated, Any
 
 from pydantic import (
     BeforeValidator,
-    Field,
     SecretStr,
     ValidationError,
-    ValidationInfo,
     field_validator,
 )
 from pydantic.fields import FieldInfo
@@ -33,13 +31,8 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 
 from demobank.db.url import UnsupportedSchemeError, database_url
 
-_BOOLEANS = {"true": True, "1": True, "false": False, "0": False}
-
 # Error types raised by the validators below. The line shown to the operator
 # comes from `_problem()`, never from these messages.
-_NOT_BOOLEAN = "not_boolean"
-_ADMIN_KEY_MISSING = "admin_key_missing"
-_ADMIN_KEY_EQUALS_API_KEY = "admin_key_equals_api_key"
 _UNSUPPORTED_SCHEME = "unsupported_scheme"
 _INVALID_URL = "invalid_url"
 _NOT_SEED = "not_seed"
@@ -56,18 +49,6 @@ class ConfigError(Exception):
     The message has one line per problem. Each line names the environment
     variable and the reason, and never contains the value of any variable.
     """
-
-
-def _parse_bool(value: Any) -> Any:
-    if isinstance(value, str):
-        parsed = _BOOLEANS.get(value.strip().lower())
-        if parsed is None:
-            raise PydanticCustomError(_NOT_BOOLEAN, "not a boolean")
-        return parsed
-    return value
-
-
-_EnvBool = Annotated[bool, BeforeValidator(_parse_bool)]
 
 
 def _parse_seed(value: Any) -> Any:
@@ -128,11 +109,6 @@ class Settings(BaseSettings):
     # Required: the key every `/v1/*` request must send in `X-API-Key`.
     demobank_api_key: SecretStr
 
-    # Optional. The admin routes (#12) need their own key when enabled.
-    demobank_admin_enabled: _EnvBool = False
-    # Validated even when unset, so a missing key is caught when admin is on.
-    demobank_admin_key: SecretStr = Field(default=SecretStr(""), validate_default=True)
-
     # Required: the PostgreSQL database holding the `demobank_sim` schema (#9).
     # A secret: it embeds the database password.
     demobank_database_url: SecretStr
@@ -140,22 +116,6 @@ class Settings(BaseSettings):
     # unset anchor date means "the date of first generation".
     demobank_seed: _Seed = 42
     demobank_anchor_date: _AnchorDate = None
-
-    @field_validator("demobank_admin_key")
-    @classmethod
-    def _admin_key_when_enabled(cls, admin_key: SecretStr, info: ValidationInfo) -> SecretStr:
-        # The fields above are declared first, so they are already validated.
-        # A field that is itself invalid is absent from `info.data` and is
-        # reported on its own.
-        if info.data.get("demobank_admin_enabled") is not True:
-            return admin_key
-        value = admin_key.get_secret_value()
-        if not value.strip():
-            raise PydanticCustomError(_ADMIN_KEY_MISSING, "admin key missing")
-        api_key = info.data.get("demobank_api_key")
-        if api_key is not None and value == api_key.get_secret_value():
-            raise PydanticCustomError(_ADMIN_KEY_EQUALS_API_KEY, "admin key equals API key")
-        return admin_key
 
     @field_validator("demobank_database_url")
     @classmethod
@@ -189,15 +149,9 @@ class Settings(BaseSettings):
 def _problem(error: ErrorDetails) -> str:
     """One line for one validation error, built without the offending value."""
     kind = error["type"]
-    if kind == _ADMIN_KEY_MISSING:
-        return "DEMOBANK_ADMIN_KEY is required when DEMOBANK_ADMIN_ENABLED is true"
-    if kind == _ADMIN_KEY_EQUALS_API_KEY:
-        return "DEMOBANK_ADMIN_KEY must differ from DEMOBANK_API_KEY"
     name = env_name(str(error["loc"][0])) if error["loc"] else "Configuration"
     if kind == "missing":
         return f"{name} is required but not set (an empty or blank value counts as unset)"
-    if kind == _NOT_BOOLEAN:
-        return f"{name} must be true, false, 1 or 0"
     if kind == _UNSUPPORTED_SCHEME:
         return f"{name} has an unsupported scheme; expected postgresql://"
     if kind == _NOT_SEED:

@@ -2,7 +2,8 @@
 
 There is no Alembic: the data can be regenerated from the seed and the anchor
 date, so a schema from another version fails startup loudly instead of being
-migrated. `SCHEMA_VERSION` is bumped by every change to a table (#12, #13).
+migrated. `SCHEMA_VERSION` is bumped by every change to a table or to the generated
+data (#12, #13).
 """
 
 from sqlalchemy import (
@@ -21,7 +22,7 @@ from sqlalchemy import (
 )
 
 SCHEMA = "demobank_sim"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 metadata = MetaData(schema=SCHEMA)
 

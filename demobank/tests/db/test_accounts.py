@@ -89,6 +89,17 @@ def test_balance_matches_an_independent_decimal_sum(client: TestClient) -> None:
     assert before <= as_of <= after
 
 
+def test_balance_includes_the_planted_anomalies(client: TestClient) -> None:
+    dataset = generate(SEED, ANCHOR)
+    history = dataset.account.opening_balance
+    for t in dataset.transactions[:-3]:
+        history += t.amount if t.direction == "credit" else -t.amount
+
+    response = client.get(BALANCE_URL, headers=HEADERS)
+
+    assert Decimal(response.json()["balance"]) == history - Decimal("8760.00")
+
+
 def test_balance_drops_by_an_appended_debit(client: TestClient, engine: Engine) -> None:
     before = Decimal(client.get(BALANCE_URL, headers=HEADERS).json()["balance"])
     amount = Decimal("123.45")

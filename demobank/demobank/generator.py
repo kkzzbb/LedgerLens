@@ -168,6 +168,30 @@ ANCHORED_RECEIPTS = (
 
 
 @dataclass(frozen=True)
+class PlantedDebit:
+    """A fixed debit booked on `anchor_date` after the history, for every seed (#12).
+
+    The planted debits give LedgerLens' anomaly rules one possible duplicate
+    payment (#28) and one unusually large expense (#30) to flag.
+    """
+
+    scenario: str
+    counterparty: Counterparty
+    amount_cents: int
+    description: str
+
+
+# `SVC-9001` and `BILL-9001` are outside the ordinary sequences.
+PLANTED_DEBITS = (
+    PlantedDebit("duplicate_payment", OTHER_SUPPLIERS[0], 45_500, "Deep clean SVC-9001"),
+    PlantedDebit("duplicate_payment", OTHER_SUPPLIERS[0], 45_500, "Deep clean SVC-9001"),
+    PlantedDebit(
+        "unusual_expense", INVENTORY_SUPPLIERS[0], 785_000, "Inventory purchase BILL-9001"
+    ),
+)
+
+
+@dataclass(frozen=True)
 class Slot:
     """One scheduled transaction, before its amount (and customer) is drawn.
 
@@ -292,6 +316,21 @@ def schedule(anchor_date: date) -> list[Slot]:
     return slots
 
 
+def planted_slots(anchor_date: date) -> list[Slot]:
+    """The planted debits, all on `anchor_date`, in `PLANTED_DEBITS` order."""
+    return [
+        Slot(
+            booking_date=anchor_date,
+            counterparties=(debit.counterparty,),
+            direction="debit",
+            description=debit.description,
+            min_cents=debit.amount_cents,
+            max_cents=debit.amount_cents,
+        )
+        for debit in PLANTED_DEBITS
+    ]
+
+
 _MONTHLY_DESCRIPTIONS = {
     RENT: "Shop rent",
     SOFTWARE: "Software subscription",
@@ -307,12 +346,15 @@ def _monthly_description(counterparty: Counterparty, day: date) -> str:
 def generate(seed: int, anchor_date: date) -> Dataset:
     """The account and its transactions for `seed` and `anchor_date`.
 
-    Transaction IDs (`txn_000001`, ...) follow the schedule, which is in
-    `(booking_date, schedule order)` order.
+    The history (`schedule`) is followed by the planted debits
+    (`planted_slots`), which are booked on `anchor_date` and so sort after
+    every history row. Transaction IDs (`txn_000001`, ...) follow that order,
+    which is `(booking_date, schedule order)` order.
     """
     rng = random.Random(seed)
     transactions: list[Transaction] = []
-    for number, slot in enumerate(schedule(anchor_date), start=1):
+    slots = [*schedule(anchor_date), *planted_slots(anchor_date)]
+    for number, slot in enumerate(slots, start=1):
         if len(slot.counterparties) == 1:
             counterparty = slot.counterparties[0]
         else:

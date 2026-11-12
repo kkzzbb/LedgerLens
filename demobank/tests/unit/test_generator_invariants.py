@@ -15,6 +15,7 @@ The thresholds are in `tests/unit/invariants.py`, copied from
 `docs/accounting-rules.md` and #28 to #32.
 """
 
+import dataclasses
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
@@ -29,10 +30,13 @@ from demobank.generator import (
     HISTORY_DAYS,
     MONTHLY_PAYMENTS,
     OPENING_BALANCE_CENTS,
+    PLANTED_DEBITS,
     RECEIPT_MIN_CENTS,
+    Dataset,
     cents_to_amount,
     generate,
     history_start,
+    planted_slots,
     schedule,
 )
 from tests.unit.invariants import (
@@ -42,6 +46,7 @@ from tests.unit.invariants import (
     ANOMALY_LARGE_EXPENSE_ABSOLUTE,
     ANOMALY_LARGE_EXPENSE_MULTIPLIER,
     Row,
+    absolute_limit_violations,
     all_violations,
     balance_violations,
     category_increase_violations,
@@ -60,11 +65,39 @@ CATEGORIES = {counterparty.name: counterparty.category for counterparty in COUNT
 
 WORST_CASE_FIRST = date(2024, 1, 1)
 WORST_CASE_LAST = date(2029, 12, 31)
-# The lowest balance of the worst case found when the issue was groomed.
+# The lowest balance of the worst case found when the issue was groomed. The
+# planted debits (#12) do not lower it.
 GROOMED_LOWEST_BALANCE = Decimal("18900.00")
 
 # Feb has 28 days in a common year: the shortest gap across a month end.
 SHORTEST_MONTH_DAYS = 28
+
+
+def history_only(dataset: Dataset) -> Dataset:
+    """The dataset without the planted debits (the last transactions)."""
+    return dataclasses.replace(dataset, transactions=dataset.transactions[: -len(PLANTED_DEBITS)])
+
+
+def planted_violations(
+    rows: list[Row], anchor: date, opening_balance: Decimal
+) -> dict[str, list[str]]:
+    """The invariants the planted debits (#12) touch, over the full dataset."""
+    return {
+        "balance": balance_violations(rows, opening_balance),
+        "possible duplicate": duplicate_violations(rows),
+        "absolute limit": absolute_limit_violations(rows),
+        # The flagged row only: the message carries the baseline mean.
+        "large expense": [found.split(":")[0] for found in large_expense_violations(rows, anchor)],
+    }
+
+
+def expected_planted_violations(anchor: date) -> dict[str, list[str]]:
+    return {
+        "balance": [],
+        "possible duplicate": [f"Sparkvale Cleaning: {anchor} and {anchor}"],
+        "absolute limit": [f"{anchor} Orchardine Wholesale: 7850.00 > 5000.00"],
+        "large expense": [f"{anchor} Orchardine Wholesale"],
+    }
 
 
 def every_day(first: date, last: date) -> list[date]:
@@ -202,6 +235,24 @@ def test_worst_case_for_every_anchor_date_from_2024_to_2029() -> None:
     assert min(lowest) == GROOMED_LOWEST_BALANCE
 
 
+def test_worst_case_with_the_planted_debits_from_2024_to_2029() -> None:
+    lowest = []
+    failures: dict[date, dict[str, list[str]]] = {}
+    for anchor in every_day(WORST_CASE_FIRST, WORST_CASE_LAST):
+        slots = [*schedule(anchor), *planted_slots(anchor)]
+        rows = worst_case_rows(slots, debits_first=True)
+        violations = planted_violations(rows, anchor, OPENING_BALANCE)
+        in_order = worst_case_rows(slots, debits_first=False)
+        violations["balance"] += balance_violations(in_order, OPENING_BALANCE)
+        if violations != expected_planted_violations(anchor):
+            failures[anchor] = violations
+        lowest.append(lowest_balance(rows, OPENING_BALANCE))
+
+    assert failures == {}
+    assert len(lowest) == 2192
+    assert min(lowest) == GROOMED_LOWEST_BALANCE
+
+
 def test_worst_case_covers_a_window_crossing_a_month_end() -> None:
     # Anchors on days 1 to 6 put the window across a month end: both months
     # are checked by #31, the previous one as a whole month.
@@ -218,11 +269,25 @@ def test_generated_history_satisfies_every_invariant(seed: int) -> None:
     anchor = date(2024, 1, 1) + timedelta(days=(29 * seed) % 731)
     dataset = generate(seed, anchor)
 
-    rows = rows_from_dataset(dataset, CATEGORIES)
+    rows = rows_from_dataset(history_only(dataset), CATEGORIES)
     violations = all_violations(rows, anchor, dataset.account.opening_balance)
 
     assert {name: found for name, found in violations.items() if found} == {}
     assert len(rows) == len(schedule(anchor))
+
+
+@pytest.mark.parametrize("seed", range(200))
+def test_generated_dataset_has_exactly_the_planted_anomalies(seed: int) -> None:
+    anchor = date(2024, 1, 1) + timedelta(days=(29 * seed) % 731)
+    dataset = generate(seed, anchor)
+
+    rows = rows_from_dataset(dataset, CATEGORIES)
+    violations = planted_violations(rows, anchor, dataset.account.opening_balance)
+
+    assert violations == expected_planted_violations(anchor)
+    first, second = dataset.transactions[-3:-1]
+    assert (second.booking_date - first.booking_date).days == 0
+    assert abs(second.amount - first.amount) == Decimal("0.00")
 
 
 def test_property_test_anchors_spread_over_2_years() -> None:

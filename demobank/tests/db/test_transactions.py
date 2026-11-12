@@ -104,6 +104,19 @@ def test_paging_with_limit_7_returns_every_record_once_in_order(client: TestClie
     assert decoded == f'{{"b":"{last["booking_date"]}","t":"{last["transaction_id"]}"}}'
 
 
+def test_planted_anomalies_are_the_last_3_records(client: TestClient) -> None:
+    records = [t for page in page_through(client, 500) for t in page["transactions"]]
+
+    assert [
+        (r["booking_date"], r["counterparty_name"], r["amount"], r["description"])
+        for r in records[-3:]
+    ] == [
+        ("2026-06-30", "Sparkvale Cleaning", "455.00", "Deep clean SVC-9001"),
+        ("2026-06-30", "Sparkvale Cleaning", "455.00", "Deep clean SVC-9001"),
+        ("2026-06-30", "Orchardine Wholesale", "7850.00", "Inventory purchase BILL-9001"),
+    ]
+
+
 def test_final_cursor_returns_an_empty_page_with_the_same_cursor(client: TestClient) -> None:
     final = page_through(client, 500)[-1]["next_cursor"]
     again = get_page(client, cursor=final)

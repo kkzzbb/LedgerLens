@@ -27,8 +27,6 @@ from demobank.db.startup import CANNOT_CONNECT, DatabaseStartupError
 DEMOBANK_DIR = Path(__file__).resolve().parents[2]
 SETTINGS_VARIABLES = {
     "DEMOBANK_API_KEY",
-    "DEMOBANK_ADMIN_ENABLED",
-    "DEMOBANK_ADMIN_KEY",
     "DEMOBANK_DATABASE_URL",
     "DEMOBANK_SEED",
     "DEMOBANK_ANCHOR_DATE",
@@ -39,7 +37,6 @@ PASSWORD_MARKER = "MARKERdbpw9"
 UNREACHABLE_URL = f"postgresql://ledgerlens:{PASSWORD_MARKER}@127.0.0.1:1/ledgerlens"
 
 API_KEY = "test-api-key"
-ADMIN_KEY = "test-admin-key"
 API_KEY_MARKER = "MARKERapikey42"
 OK = {"status": "ok"}
 UNAUTHORIZED = {"error": "unauthorized"}
@@ -66,10 +63,8 @@ def app_without_database() -> FastAPI:
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    """A started app (its lifespan has run) with admin enabled and a distinct admin key."""
+    """A started app (its lifespan has run)."""
     monkeypatch.setenv("DEMOBANK_API_KEY", API_KEY)
-    monkeypatch.setenv("DEMOBANK_ADMIN_ENABLED", "true")
-    monkeypatch.setenv("DEMOBANK_ADMIN_KEY", ADMIN_KEY)
     with TestClient(app_without_database()) as started:
         yield started
 
@@ -117,7 +112,7 @@ def test_startup_fails_without_api_key() -> None:
 
 def test_uvicorn_exits_non_zero_without_api_key() -> None:
     environment = environment_without_settings()
-    environment["DEMOBANK_ADMIN_KEY"] = "MARKER-demobank-admin-key"
+    environment["DEMOBANK_SEED"] = "MARKER-seed"
     result = subprocess.run(
         [sys.executable, "-m", "uvicorn", "--factory", "demobank.app:create_app", "--port", "0"],
         cwd=DEMOBANK_DIR,
@@ -260,7 +255,6 @@ def test_header_name_is_case_insensitive(client: TestClient, name: str) -> None:
         {"X-API-Key": f"{API_KEY} "},
         {"X-API-Key": "test-api-kéy".encode()},
         {"X-API-Key": b"\xff\xfe\x00test"},
-        {"X-API-Key": ADMIN_KEY},
         {"Authorization": f"Bearer {API_KEY}"},
     ],
     ids=[
@@ -271,7 +265,6 @@ def test_header_name_is_case_insensitive(client: TestClient, name: str) -> None:
         "trailing-space",
         "non-ascii-utf8",
         "non-ascii-bytes",
-        "admin-key",
         "other-header",
     ],
 )

@@ -45,8 +45,6 @@ value counts as unset.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `DEMOBANK_API_KEY` | required | The key every `/v1/*` request must send in `X-API-Key` |
-| `DEMOBANK_ADMIN_ENABLED` | `false` | Turns the admin scenario routes on (#12): `true`, `false`, `1` or `0` |
-| `DEMOBANK_ADMIN_KEY` | empty | The admin key (#12). Required, and different from `DEMOBANK_API_KEY`, when admin is enabled |
 | `DEMOBANK_DATABASE_URL` | required | The PostgreSQL database (a secret: it holds the password). `postgresql://`, `postgres://` and `postgresql+psycopg://` are accepted; the psycopg 3 driver is used. DemoBank uses only the `demobank_sim` schema |
 | `DEMOBANK_SEED` | `42` | Seed of the generated history: a non-negative integer |
 | `DEMOBANK_ANCHOR_DATE` | empty | Last day of the generated history, `YYYY-MM-DD`. Empty means the date of first generation (today in UTC). A date after today is rejected |
@@ -249,8 +247,9 @@ Each transaction has these fields: `transaction_id`, `account_id`,
 `counterparty_reference`, `description` and `status` (`booked`).
 
 - Transaction IDs: `txn_` and a 6-digit sequence (`txn_000001`, ...) in
-  `(booking_date, schedule order)` order, so sorting by `transaction_id` and
-  by `(booking_date, transaction_id)` give the same order
+  `(booking_date, schedule order)` order, then the planted anomalies, so
+  sorting by `transaction_id` and by `(booking_date, transaction_id)` give
+  the same order
 - Invoice numbers: each ordinary customer receipt's `description` holds one,
   `Customer payment INV-1001` and up in booking order. The scheme does not
   depend on the calendar year. With about 131 weekdays in 183 days, the
@@ -280,16 +279,47 @@ with this list** (`ANCHORED_RECEIPTS` in `demobank/generator.py`).
 | `anchor_date - 18` | Duskwillow Florists | 1,990.00 | `Customer payment INV-9005` |
 | `anchor_date - 26` | Fernhollow Cafe | 2,210.00 | `Customer payment` (no invoice number: an unmatched incoming payment) |
 
+### Planted anomalies (#12)
+
+Every dataset ends with these 3 debits, the same for every seed, all booked
+(and valued) on `anchor_date` after the history, with the next transaction
+IDs (`txn_<N+1>` to `txn_<N+3>` after the last history row `txn_<N>`). They
+sort after every history row, so a sync's cursor (#11) never skips them:
+
+| Scenario | Counterparty | Reference | Amount | Description |
+|---|---|---|---|---|
+| `duplicate_payment` (1st) | Sparkvale Cleaning | `DEMO-CP-0041` | 455.00 | `Deep clean SVC-9001` |
+| `duplicate_payment` (2nd) | Sparkvale Cleaning | `DEMO-CP-0041` | 455.00 | `Deep clean SVC-9001` |
+| `unusual_expense` | Orchardine Wholesale | `DEMO-CP-0051` | 7850.00 | `Inventory purchase BILL-9001` |
+
+They give LedgerLens' anomaly rules one possible duplicate payment (#28: the
+2nd row, 0 days and 0.00 apart from the 1st) and one unusually large expense
+(#30: above 5,000.00 and above 3 times Orchardine's baseline). They are
+potential issues for review, never fraud. `SVC-9001` and `BILL-9001` are
+outside the ordinary sequences.
+
+LedgerLens evaluates only the rows booked in the last 7 days (#32), and
+`anchor_date` defaults to the day of first generation, so the first sync
+after a fresh start flags them. With an older `DEMOBANK_ANCHOR_DATE`, or a
+dataset more than 6 days old, they fall outside the window and are history
+only.
+
+To replay them, reset everything and start again: `docker compose down -v`,
+then `docker compose up --build`. This also resets LedgerLens' data (see
+"Regenerate with another seed or anchor date"). There is no route or setting
+to trigger them on demand.
+
 ### Guarantees
 
 For every seed and every anchor date, by construction (the dates are fixed
 and the amount ranges are narrow):
 
 - the running balance never goes below 0, in `(booking_date,
-  transaction_id)` order. The lowest balance possible, with every debit at
-  its maximum and every credit at its minimum, is 18,900.00
+  transaction_id)` order, with the planted anomalies. The lowest balance
+  possible, with every debit at its maximum and every credit at its minimum,
+  is 18,900.00 (the planted anomalies, on the last day, do not lower it)
 - total credits exceed total debits
-- the ordinary history trips none of LedgerLens' transaction rules #28 to
+- the history without the planted anomalies trips none of LedgerLens' transaction rules #28 to
   #31 at their default thresholds, over the 7-day evaluation window ending on
   `anchor_date` (#32): no debit above 5,000.00 or above 3 times its vendor or
   category baseline, no possible duplicate (same-counterparty debits are at
@@ -301,6 +331,9 @@ ordinary customer receipts booked 8 to 60 days before LedgerLens' `as_of`
 that have no accepted match (about 37), and the anchored receipt without an
 invoice number. This is expected.
 
+With the planted anomalies, the full dataset has exactly one possible
+duplicate (#28) and one large expense (#30) in the window.
+
 The tests check these through range checks on the constants, the worst case
 of the schedule for every anchor date from 2024 to 2029, and a property test
 over 200 seeds.
@@ -308,7 +341,7 @@ over 200 seeds.
 ### Golden hash
 
 `generate(42, date(2026, 6, 30))` has the SHA-256
-`409debe08911b327eddd03927a4774b003cb5ec6d95cca7798c427fe123ec2af` over the
+`d525a15f65d98dd19fcff99cad033158f31c611a73329d9aac371e631027eb3d` over the
 canonical serialisation in `tests/unit/test_generator.py`. The test fails on
 any change to the data. Update the constant on purpose only, and update this
 hash and #44's data with it.
