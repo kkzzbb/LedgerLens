@@ -3,7 +3,8 @@
 The account row is the only sync record: it holds the cursor, the balance and
 the last sync time and result. Transaction columns follow DemoBank's
 transaction shape; the imported facts are never updated after insert
-(`docs/accounting-rules.md`, Bank transactions).
+(`docs/accounting-rules.md`, Bank transactions). `category` is the only column
+written after insert, by the categorization rules (#25).
 """
 
 from datetime import date, datetime
@@ -30,6 +31,15 @@ from sqlalchemy.orm import Mapped, mapped_column
 from ledgerlens.db.base import Base
 
 MONEY = Numeric(14, 2)
+
+# The keys of `ledgerlens.domain.categories.CATEGORIES`. A credit is `revenue`
+# or `other`; a debit is anything but `revenue` (`docs/accounting-rules.md`).
+CATEGORY_VALID = (
+    "category IN ('revenue', 'rent', 'software', 'utilities', 'inventory', "
+    "'supplier_other', 'other')"
+)
+CATEGORY_CREDIT = "direction <> 'credit' OR category IN ('revenue', 'other')"
+CATEGORY_DEBIT = "direction <> 'debit' OR category <> 'revenue'"
 
 
 class BankAccount(Base):
@@ -66,6 +76,9 @@ class BankTransaction(Base):
         CheckConstraint("currency = 'EUR'", name="currency_eur"),
         CheckConstraint("amount > 0", name="amount_positive"),
         CheckConstraint("direction IN ('debit', 'credit')", name="direction_valid"),
+        CheckConstraint(CATEGORY_VALID, name="category_valid"),
+        CheckConstraint(CATEGORY_CREDIT, name="category_credit"),
+        CheckConstraint(CATEGORY_DEBIT, name="category_debit"),
         Index(None, "bank_account_id", "booking_date"),
     )
 
@@ -89,3 +102,5 @@ class BankTransaction(Base):
     imported_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # A `CATEGORIES` key set by the rules; NULL until the next sync categorizes the row.
+    category: Mapped[str | None] = mapped_column(Text)

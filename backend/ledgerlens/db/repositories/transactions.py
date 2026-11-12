@@ -21,6 +21,8 @@ class TransactionFilters:
     direction: str | None = None
     # Case-insensitive substring of the counterparty name or the description.
     q: str | None = None
+    # A category key; matches only rows already categorized with it.
+    category: str | None = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +58,8 @@ def _conditions(filters: TransactionFilters) -> list[ColumnElement[bool]]:
         conditions.append(BankTransaction.booking_date <= filters.date_to)
     if filters.direction is not None:
         conditions.append(BankTransaction.direction == filters.direction)
+    if filters.category is not None:
+        conditions.append(BankTransaction.category == filters.category)
     q = (filters.q or "").strip()
     if q:
         # `autoescape` matches `%`, `_` and the escape character literally.

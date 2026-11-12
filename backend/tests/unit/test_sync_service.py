@@ -139,6 +139,7 @@ def store(monkeypatch: pytest.MonkeyPatch) -> Store:
 
     monkeypatch.setattr(sync, "upsert_bank_account", upsert)
     monkeypatch.setattr(sync, "insert_new_transactions", insert)
+    monkeypatch.setattr(sync, "categorize_transactions", lambda session, account_id: 0)
     return data
 
 

@@ -101,6 +101,7 @@ def test_item_shape_and_exact_amounts(
         counterparty_name="Shop",
         counterparty_reference="REF",
         description="Paper",
+        category="supplier_other",
     )
     add(db_session, account, amount=Decimal("5"), booking_date=date(2026, 10, 1))
 
@@ -118,8 +119,10 @@ def test_item_shape_and_exact_amounts(
         "counterparty_reference": "REF",
         "description": "Paper",
         "status": "booked",
+        "category": "supplier_other",
     }
     assert body["items"][1]["amount"] == "5.00"
+    assert body["items"][1]["category"] is None
     assert body["items"][1]["value_date"] is None
     assert not any(isinstance(value, float) for value in walk(body))
 
@@ -151,6 +154,7 @@ def test_order_and_paging_split_same_date(
         {"date_from": "2026-13-01"},
         {"date_to": "nope"},
         {"direction": "both"},
+        {"category": "groceries"},
     ],
 )
 def test_invalid_parameters_return_422(client: TestClient, params: dict[str, Any]) -> None:
@@ -241,3 +245,16 @@ def test_filters_combine_with_and(
     assert ids(get(client, account_id=account.id, direction="credit", date_from="2026-10-01")) == [
         match.id
     ]
+
+
+def test_category_filter_combines_with_the_other_filters(
+    client: TestClient, db_session: Session, account: BankAccount
+) -> None:
+    rent = add(db_session, account, category="rent", description="Shop rent")
+    add(db_session, account, category="rent", booking_date=date(2026, 10, 1))
+    add(db_session, account, category="software", description="Shop rent")
+    add(db_session, account)
+
+    assert get(client, category="rent")["total"] == 2
+    assert ids(get(client, category="rent", date_from="2026-11-01", q="shop")) == [rent.id]
+    assert get(client, category="other")["total"] == 0
