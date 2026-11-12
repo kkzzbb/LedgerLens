@@ -16,6 +16,7 @@ whitespace counts as unset.
 import os
 import re
 import sys
+from decimal import Decimal
 from functools import lru_cache
 from typing import Annotated, Any
 
@@ -111,6 +112,14 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr = SecretStr("")
     agent_model: str = "claude-opus-5-5"
     otel_exporter_otlp_endpoint: str = ""
+    # Anomaly rules evaluate only the debits booked in the last N calendar days
+    anomaly_evaluation_window_days: _PositiveInt = 7
+    # Most days between two payments flagged as a possible duplicate
+    anomaly_duplicate_window_days: Annotated[_EnvInt, Field(ge=0)] = 3
+    # Largest amount difference of a possible duplicate, in % of the larger amount
+    anomaly_duplicate_amount_tolerance_percent: Annotated[Decimal, Field(ge=0, le=100)] = Decimal(
+        "1"
+    )
 
     @property
     def agents_enabled(self) -> bool:

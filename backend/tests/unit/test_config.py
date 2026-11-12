@@ -1,6 +1,7 @@
 import subprocess
 import sys
 from collections.abc import Iterator
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -27,8 +28,14 @@ INTEGER_VARIABLES = [
     "SYNC_PAGE_SIZE",
     "STALE_THRESHOLD_MINUTES",
     "FAILURE_STREAK_THRESHOLD",
+    "ANOMALY_EVALUATION_WINDOW_DAYS",
+    "ANOMALY_DUPLICATE_WINDOW_DAYS",
 ]
-AT_LEAST_ONE_VARIABLES = [name for name in INTEGER_VARIABLES if name != "SYNC_PAGE_SIZE"]
+AT_LEAST_ONE_VARIABLES = [
+    name
+    for name in INTEGER_VARIABLES
+    if name not in {"SYNC_PAGE_SIZE", "ANOMALY_DUPLICATE_WINDOW_DAYS"}
+]
 
 
 @pytest.fixture(autouse=True)
@@ -78,6 +85,9 @@ def test_field_names_cover_the_documented_variables() -> None:
         "ANTHROPIC_API_KEY",
         "AGENT_MODEL",
         "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "ANOMALY_EVALUATION_WINDOW_DAYS",
+        "ANOMALY_DUPLICATE_WINDOW_DAYS",
+        "ANOMALY_DUPLICATE_AMOUNT_TOLERANCE_PERCENT",
     }
 
 
@@ -96,6 +106,9 @@ def test_defaults() -> None:
     assert settings.anthropic_api_key.get_secret_value() == ""
     assert settings.agent_model == "claude-opus-5-5"
     assert settings.otel_exporter_otlp_endpoint == ""
+    assert settings.anomaly_evaluation_window_days == 7
+    assert settings.anomaly_duplicate_window_days == 3
+    assert settings.anomaly_duplicate_amount_tolerance_percent == Decimal("1")
 
 
 def test_overrides_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -111,6 +124,9 @@ def test_overrides_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None
         "ANTHROPIC_API_KEY": "other-anthropic-key",
         "AGENT_MODEL": "some-other-model",
         "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-collector:4318",
+        "ANOMALY_EVALUATION_WINDOW_DAYS": "14",
+        "ANOMALY_DUPLICATE_WINDOW_DAYS": "0",
+        "ANOMALY_DUPLICATE_AMOUNT_TOLERANCE_PERCENT": "2.5",
     }
     assert set(overrides) == set(ALL_VARIABLES)
     for name, value in overrides.items():
@@ -129,6 +145,9 @@ def test_overrides_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None
     assert settings.anthropic_api_key.get_secret_value() == "other-anthropic-key"
     assert settings.agent_model == "some-other-model"
     assert settings.otel_exporter_otlp_endpoint == "http://otel-collector:4318"
+    assert settings.anomaly_evaluation_window_days == 14
+    assert settings.anomaly_duplicate_window_days == 0
+    assert settings.anomaly_duplicate_amount_tolerance_percent == Decimal("2.5")
 
 
 # Caching
@@ -471,3 +490,39 @@ def test_env_example_carries_the_defaults_of_the_optional_variables() -> None:
             default = default.get_secret_value()
         expected = str(default).lower() if isinstance(default, bool) else str(default)
         assert values[env_name(field)] == expected
+
+
+# Anomaly settings
+
+
+@pytest.mark.usefixtures("required")
+def test_duplicate_window_of_zero_is_accepted_and_below_zero_is_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANOMALY_DUPLICATE_WINDOW_DAYS", "0")
+    assert get_settings().anomaly_duplicate_window_days == 0
+    get_settings.cache_clear()
+
+    assert_only_problem(
+        error_lines(monkeypatch, ANOMALY_DUPLICATE_WINDOW_DAYS="-1"),
+        "ANOMALY_DUPLICATE_WINDOW_DAYS",
+    )
+
+
+@pytest.mark.usefixtures("required")
+@pytest.mark.parametrize("value", ["0", "100", "0.5"])
+def test_tolerance_from_0_to_100_is_accepted(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("ANOMALY_DUPLICATE_AMOUNT_TOLERANCE_PERCENT", value)
+
+    assert get_settings().anomaly_duplicate_amount_tolerance_percent == Decimal(value)
+
+
+@pytest.mark.usefixtures("required")
+@pytest.mark.parametrize("value", ["-0.01", "100.01", "MARKER-abc", "NaN"])
+def test_invalid_tolerance_fails_without_the_value(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    lines = error_lines(monkeypatch, ANOMALY_DUPLICATE_AMOUNT_TOLERANCE_PERCENT=value)
+
+    assert_only_problem(lines, "ANOMALY_DUPLICATE_AMOUNT_TOLERANCE_PERCENT")
+    assert value not in lines[0]
