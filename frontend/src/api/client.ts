@@ -2,7 +2,9 @@
 // dev server proxies /api to the backend, so the browser needs no CORS.
 import type {
   AccountListResponse,
+  ExpensesReportResponse,
   HealthResponse,
+  MonthlyReportResponse,
   SyncResponse,
   TransactionListResponse,
   TransactionParams,
@@ -69,4 +71,26 @@ export function getTransactions(
 
 export function runSync(): Promise<SyncResponse> {
   return request<SyncResponse>('/api/sync', { method: 'POST' })
+}
+
+function monthRange(from: string, to: string): string {
+  return new URLSearchParams({ from, to }).toString()
+}
+
+export function getMonthlyReport(
+  from: string,
+  to: string,
+): Promise<MonthlyReportResponse> {
+  return request<MonthlyReportResponse>(
+    `/api/reports/monthly?${monthRange(from, to)}`,
+  )
+}
+
+export function getExpensesReport(
+  from: string,
+  to: string,
+): Promise<ExpensesReportResponse> {
+  return request<ExpensesReportResponse>(
+    `/api/reports/expenses?${monthRange(from, to)}`,
+  )
 }

@@ -70,3 +70,36 @@ export interface AccountSyncResponse {
 export interface SyncResponse {
   accounts: AccountSyncResponse[]
 }
+
+export interface MonthResponse {
+  month: string
+  money_in: string
+  money_out: string
+  net: string
+}
+
+export interface MonthlyReportResponse {
+  from: string
+  to: string
+  currency: string
+  months: MonthResponse[]
+}
+
+export interface MonthAmountResponse {
+  month: string
+  amount: string
+}
+
+export interface CategoryReportResponse {
+  key: string
+  name: string
+  total: string
+  months: MonthAmountResponse[]
+}
+
+export interface ExpensesReportResponse {
+  from: string
+  to: string
+  currency: string
+  categories: CategoryReportResponse[]
+}
