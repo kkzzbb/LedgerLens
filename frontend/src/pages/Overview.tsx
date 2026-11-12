@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import {
   ApiError,
   getAccounts,
+  getMonthlyReport,
   getTransactions,
   runSync,
 } from "../api/client.ts";
@@ -12,8 +14,10 @@ import { EmptyState } from "../components/EmptyState.tsx";
 import { ErrorMessage } from "../components/ErrorMessage.tsx";
 import { Loading } from "../components/Loading.tsx";
 import { formatMoney } from "../money.ts";
+import { lastMonths } from "../months.ts";
 
 const RECENT_LIMIT = 5;
+const MONTHLY_MONTHS = 6;
 
 function toApiError(error: Error): ApiError {
   return error instanceof ApiError ? error : new ApiError(0, error.message);
@@ -73,8 +77,15 @@ function AccountCard({ account }: { account: AccountResponse }) {
   );
 }
 
-export function Overview() {
+export function Overview({ today = new Date() }: { today?: Date }) {
   const queryClient = useQueryClient();
+  const [range] = useState(() => lastMonths(today, MONTHLY_MONTHS));
+
+  const monthly = useQuery({
+    queryKey: ["reports", "monthly", range.from, range.to],
+    queryFn: () => getMonthlyReport(range.from, range.to),
+    retry: false,
+  });
 
   const accounts = useQuery({
     queryKey: ["accounts"],
@@ -143,6 +154,43 @@ export function Overview() {
     );
   }
 
+  let monthlyContent;
+  if (monthly.isPending) {
+    monthlyContent = <Loading />;
+  } else if (monthly.isError) {
+    monthlyContent = <ErrorMessage error={toApiError(monthly.error)} />;
+  } else if (
+    monthly.data.months.every(
+      (m) => m.money_in === "0.00" && m.money_out === "0.00",
+    )
+  ) {
+    monthlyContent = <EmptyState message="No transactions in this period." />;
+  } else {
+    const currency = monthly.data.currency;
+    monthlyContent = (
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Month</th>
+            <th scope="col">Money in</th>
+            <th scope="col">Money out</th>
+            <th scope="col">Net</th>
+          </tr>
+        </thead>
+        <tbody>
+          {monthly.data.months.map((m) => (
+            <tr key={m.month}>
+              <td>{m.month}</td>
+              <td>{formatMoney(m.money_in, currency)}</td>
+              <td>{formatMoney(m.money_out, currency)}</td>
+              <td>{formatMoney(m.net, currency)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  }
+
   return (
     <>
       <h1>Overview</h1>
@@ -168,6 +216,10 @@ export function Overview() {
         <h2 id="recent-heading">Recent transactions</h2>
         {recentContent}
         <Link to="/transactions">All transactions</Link>
+      </section>
+      <section aria-labelledby="monthly-heading">
+        <h2 id="monthly-heading">Money in / out per month</h2>
+        {monthlyContent}
       </section>
     </>
   );

@@ -62,6 +62,7 @@ function json(body: unknown, status = 200) {
 
 interface Backend {
   accounts?: () => Response;
+  monthly?: () => Response;
   transactions?: () => Response;
   sync?: () => Response | Promise<Response>;
 }
@@ -72,6 +73,12 @@ function mockFetch(backend: Backend) {
     const url = new URL(input, "http://localhost");
     if (url.pathname === "/api/sync" && init?.method === "POST") {
       return Promise.resolve(backend.sync?.() ?? json({ accounts: [] }));
+    }
+    if (url.pathname === "/api/reports/monthly") {
+      return Promise.resolve(
+        backend.monthly?.() ??
+          json({ from: "", to: "", currency: "EUR", months: [] }),
+      );
     }
     if (url.pathname === "/api/accounts") {
       return Promise.resolve(backend.accounts?.() ?? json({ accounts: [] }));
@@ -93,14 +100,14 @@ function syncCalls(fetchMock: ReturnType<typeof mockFetch>) {
   return fetchMock.mock.calls.filter(([url]) => url === "/api/sync").length;
 }
 
-function renderPage() {
+function renderPage(today?: Date) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <Overview />
+        <Overview today={today} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -397,5 +404,93 @@ describe("separate states", () => {
     const recent = screen.getByRole("region", { name: "Recent transactions" });
     expect(await within(recent).findByText("Acme GmbH")).toBeInTheDocument();
     expect(within(recent).queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("money in / out per month", () => {
+  test("lists each month with formatted amounts", async () => {
+    const fetchMock = mockFetch({
+      monthly: () =>
+        json({
+          from: "2025-08",
+          to: "2026-01",
+          currency: "EUR",
+          months: [
+            {
+              month: "2025-12",
+              money_in: "2500.00",
+              money_out: "1234.50",
+              net: "1265.50",
+            },
+            {
+              month: "2026-01",
+              money_in: "0.00",
+              money_out: "300.00",
+              net: "-300.00",
+            },
+          ],
+        }),
+    });
+    renderPage(new Date(2026, 0, 15));
+
+    const section = screen.getByRole("region", {
+      name: "Money in / out per month",
+    });
+    const table = await within(section).findByRole("table");
+    expect(
+      within(table)
+        .getAllByRole("row")
+        .map((row) =>
+          within(row)
+            .queryAllByRole("cell")
+            .map((td) => td.textContent),
+        ),
+    ).toEqual([
+      [],
+      ["2025-12", "€2,500.00", "€1,234.50", "€1,265.50"],
+      ["2026-01", "€0.00", "€300.00", "-€300.00"],
+    ]);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toContain(
+      "/api/reports/monthly?from=2025-08&to=2026-01",
+    );
+  });
+
+  test("all-zero months show the empty state", async () => {
+    mockFetch({
+      monthly: () =>
+        json({
+          from: "2026-01",
+          to: "2026-01",
+          currency: "EUR",
+          months: [
+            { month: "2026-01", money_in: "0.00", money_out: "0.00", net: "0.00" },
+          ],
+        }),
+    });
+    renderPage();
+
+    expect(
+      await screen.findByText("No transactions in this period."),
+    ).toBeInTheDocument();
+  });
+
+  test("an error stays in its section; accounts still render", async () => {
+    mockFetch({
+      accounts: accountsBody(account({})),
+      monthly: () => json({ detail: "database unavailable" }, 503),
+    });
+    renderPage();
+
+    const section = screen.getByRole("region", {
+      name: "Money in / out per month",
+    });
+    expect(await within(section).findByRole("alert")).toHaveTextContent(
+      "database unavailable",
+    );
+    expect(
+      await screen.findByRole("article", { name: "Main account" }),
+    ).toBeInTheDocument();
+    const accounts = screen.getByRole("region", { name: "Accounts" });
+    expect(within(accounts).queryByRole("alert")).not.toBeInTheDocument();
   });
 });
