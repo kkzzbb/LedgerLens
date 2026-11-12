@@ -7,14 +7,17 @@ function here commits; the caller owns the transaction.
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import date, timedelta
+from decimal import Decimal
 from typing import Literal
 
 from sqlalchemy import ColumnElement, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, selectinload
 
-from ledgerlens.db.models import AnomalyFlag
+from ledgerlens.db.models import AnomalyFlag, BankTransaction
 from ledgerlens.domain.anomalies import RuleKey
+from ledgerlens.domain.duplicate_payment import Payment, find_possible_duplicates
 
 FlagStatus = Literal["open", "reviewed"]
 
@@ -105,3 +108,44 @@ def mark_reviewed(session: Session, flag_id: int) -> AnomalyFlag | None:
         )
         .execution_options(populate_existing=True)
     ).one_or_none()
+
+
+def flag_possible_duplicates(
+    session: Session,
+    today: date,
+    evaluation_window_days: int,
+    duplicate_window_days: int,
+    tolerance_percent: Decimal,
+) -> int:
+    """Stores a `possible_duplicate` flag for each recent debit that may duplicate an earlier one.
+
+    Candidates are the debits booked from `today - (evaluation_window_days - 1)`
+    to `today`; history is the debits booked in the `duplicate_window_days`
+    before that. Returns the number of flags inserted.
+    """
+    first_candidate_day = today - timedelta(days=evaluation_window_days - 1)
+    rows = session.execute(
+        select(
+            BankTransaction.id,
+            BankTransaction.booking_date,
+            BankTransaction.amount,
+            BankTransaction.direction,
+            BankTransaction.counterparty_name,
+        ).where(
+            BankTransaction.direction == "debit",
+            BankTransaction.booking_date
+            >= first_candidate_day - timedelta(days=duplicate_window_days),
+            BankTransaction.booking_date <= today,
+        )
+    ).all()
+    payments = [Payment(*row) for row in rows]
+    candidates = [p for p in payments if p.booking_date >= first_candidate_day]
+    history = [p for p in payments if p.booking_date < first_candidate_day]
+    flags = find_possible_duplicates(candidates, history, duplicate_window_days, tolerance_percent)
+    return insert_flags(
+        session,
+        [
+            NewFlag("possible_duplicate", f.transaction_id, f.related_transaction_id, f.reason)
+            for f in flags
+        ],
+    )

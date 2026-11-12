@@ -85,7 +85,8 @@ def test_demobank_rows_get_their_counterparty_category() -> None:
         uv run python -c 'import json; from datetime import date; \
 from demobank.generator import COUNTERPARTIES, generate; \
 c = {p.name: p.category for p in COUNTERPARTIES}; \
-rows = [{"direction": t.direction, "counterparty_name": t.counterparty_name, \
+rows = [{"transaction_id": t.transaction_id, "booking_date": t.booking_date.isoformat(), \
+"amount": str(t.amount), "direction": t.direction, "counterparty_name": t.counterparty_name, \
 "description": t.description, "category": c[t.counterparty_name]} \
 for t in generate(42, date(2026, 11, 12)).transactions]; \
 print("[\n" + ",\n".join(json.dumps(r) for r in rows) + "\n]")' \
