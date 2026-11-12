@@ -1,6 +1,9 @@
 # LedgerLens
 
-Bank sync, accounting and analysis. The backend lives in `backend/`, the
+Bank sync and analysis: LedgerLens syncs a business bank account from a
+simulated bank and shows spending by category and flags anomalies
+(possible duplicate payments, unusually large expenses). See
+`docs/scope.md`. The backend lives in `backend/`, the
 simulated bank DemoBank in `demobank/`, the frontend in `frontend/`, and the
 design docs in `docs/`.
 

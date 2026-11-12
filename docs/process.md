@@ -10,29 +10,32 @@ Roles
 
 Financial rules
 
-- Financial rules (rounding, aging, formulas, thresholds) are written
-  in `docs/accounting-rules.md`
+- Financial rules (money, rounding, balances, categories, anomaly
+  thresholds) are written in `docs/accounting-rules.md`
 - Issues labelled `accounting-review` go through the Accounting
-  reviewer twice: once after grooming and once after QA
+  reviewer twice: once after grooming and once after QA. Since the
+  scope was cut on 2026-11-12, no remaining issue carries the label.
+  Add it only to an issue that introduces a new financial formula
 
 Issues
 
 - An issue is ready to implement when it follows `docs/task-template.md`
   and its "Depends on" issues are closed
-- Issue numbers give the build order. Follow-up issues filed later
-  (#76 and up) state where they fit through "Depends on"
+- The kept issues and the build order are in `docs/scope.md`. Issues
+  outside it are closed as "not planned"; do not build them
 - Build the vertical slice first. The MVP gate is #80: DemoBank → sync
-  → database → dashboard, working end to end before the accounting
-  features (#25 onward)
+  → database → dashboard, working end to end before the analyses
+  (spending by category, anomaly detection)
 - A verification issue (#80, #75) adds no features. Gaps it finds are
   fixed in the issue that owns them, or filed as a new issue
 
 Documents
 
 - Documentation lives in `docs/`
+- `docs/scope.md` is the reference for scope
 - `docs/outdated/` holds the original plan, architecture and task list.
-  They are still the reference for scope and decisions until they are
-  replaced (#73)
+  Use them only for technical detail on kept issues; where they
+  disagree with `docs/scope.md`, the scope file wins
 
 Orchestrator
 

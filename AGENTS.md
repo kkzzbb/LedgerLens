@@ -5,6 +5,7 @@ LedgerLens backend and DemoBank: Python 3.12, managed with uv. Design docs live 
 Documents
 
 - `docs/process.md` - how work is organized
+- `docs/scope.md` - what is built (and what is not) and in which order
 
 Commands
 
