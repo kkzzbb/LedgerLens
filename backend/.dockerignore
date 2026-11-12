@@ -1,0 +1,16 @@
+# Kept out of the backend image build context. A pattern without `**/`
+# matches at the top of backend/ only.
+.venv/
+__pycache__/
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+tests/
+.env*
+.git/
+.gitignore
+Dockerfile
+.dockerignore

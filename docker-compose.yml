@@ -1,4 +1,6 @@
-# Local services for LedgerLens. Start the database with:
+# Local services for LedgerLens. Start everything with:
+#   docker compose up --build
+# or only the database with:
 #   docker compose up -d db
 # The credentials are demo values, the same as DATABASE_URL in .env.example.
 
@@ -18,6 +20,32 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  backend:
+    build: ./backend
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      # The slim image has no curl. Succeeds only on a 200.
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import sys, urllib.request
+          try:
+              status = urllib.request.urlopen("http://localhost:8000/api/health", timeout=4).status
+          except Exception:
+              sys.exit(1)
+          sys.exit(0 if status == 200 else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 volumes:
   ledgerlens-db:
