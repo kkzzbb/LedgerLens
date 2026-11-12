@@ -1,0 +1,9 @@
+# Kept out of the frontend image build context. A pattern without `**/`
+# matches at the top of frontend/ only.
+node_modules/
+dist/
+.env*
+.git/
+.gitignore
+Dockerfile
+.dockerignore
