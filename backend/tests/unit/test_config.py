@@ -30,6 +30,8 @@ INTEGER_VARIABLES = [
     "FAILURE_STREAK_THRESHOLD",
     "ANOMALY_EVALUATION_WINDOW_DAYS",
     "ANOMALY_DUPLICATE_WINDOW_DAYS",
+    "ANOMALY_MIN_HISTORY_COUNT",
+    "ANOMALY_BASELINE_DAYS",
 ]
 AT_LEAST_ONE_VARIABLES = [
     name
@@ -88,6 +90,10 @@ def test_field_names_cover_the_documented_variables() -> None:
         "ANOMALY_EVALUATION_WINDOW_DAYS",
         "ANOMALY_DUPLICATE_WINDOW_DAYS",
         "ANOMALY_DUPLICATE_AMOUNT_TOLERANCE_PERCENT",
+        "ANOMALY_LARGE_EXPENSE_ABSOLUTE",
+        "ANOMALY_LARGE_EXPENSE_MULTIPLIER",
+        "ANOMALY_MIN_HISTORY_COUNT",
+        "ANOMALY_BASELINE_DAYS",
     }
 
 
@@ -109,6 +115,10 @@ def test_defaults() -> None:
     assert settings.anomaly_evaluation_window_days == 7
     assert settings.anomaly_duplicate_window_days == 3
     assert settings.anomaly_duplicate_amount_tolerance_percent == Decimal("1")
+    assert settings.anomaly_large_expense_absolute == Decimal("5000.00")
+    assert settings.anomaly_large_expense_multiplier == Decimal("3")
+    assert settings.anomaly_min_history_count == 3
+    assert settings.anomaly_baseline_days == 90
 
 
 def test_overrides_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -127,6 +137,10 @@ def test_overrides_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None
         "ANOMALY_EVALUATION_WINDOW_DAYS": "14",
         "ANOMALY_DUPLICATE_WINDOW_DAYS": "0",
         "ANOMALY_DUPLICATE_AMOUNT_TOLERANCE_PERCENT": "2.5",
+        "ANOMALY_LARGE_EXPENSE_ABSOLUTE": "0",
+        "ANOMALY_LARGE_EXPENSE_MULTIPLIER": "2.5",
+        "ANOMALY_MIN_HISTORY_COUNT": "1",
+        "ANOMALY_BASELINE_DAYS": "30",
     }
     assert set(overrides) == set(ALL_VARIABLES)
     for name, value in overrides.items():
@@ -148,6 +162,10 @@ def test_overrides_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None
     assert settings.anomaly_evaluation_window_days == 14
     assert settings.anomaly_duplicate_window_days == 0
     assert settings.anomaly_duplicate_amount_tolerance_percent == Decimal("2.5")
+    assert settings.anomaly_large_expense_absolute == Decimal("0")
+    assert settings.anomaly_large_expense_multiplier == Decimal("2.5")
+    assert settings.anomaly_min_history_count == 1
+    assert settings.anomaly_baseline_days == 30
 
 
 # Caching
@@ -525,4 +543,23 @@ def test_invalid_tolerance_fails_without_the_value(
     lines = error_lines(monkeypatch, ANOMALY_DUPLICATE_AMOUNT_TOLERANCE_PERCENT=value)
 
     assert_only_problem(lines, "ANOMALY_DUPLICATE_AMOUNT_TOLERANCE_PERCENT")
+    assert value not in lines[0]
+
+
+@pytest.mark.usefixtures("required")
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("ANOMALY_LARGE_EXPENSE_ABSOLUTE", "-0.01"),
+        ("ANOMALY_LARGE_EXPENSE_ABSOLUTE", "NaN"),
+        ("ANOMALY_LARGE_EXPENSE_MULTIPLIER", "-1.5"),
+        ("ANOMALY_LARGE_EXPENSE_MULTIPLIER", "MARKER-abc"),
+    ],
+)
+def test_invalid_large_expense_amount_fails_without_the_value(
+    monkeypatch: pytest.MonkeyPatch, name: str, value: str
+) -> None:
+    lines = error_lines(monkeypatch, **{name: value})
+
+    assert_only_problem(lines, name)
     assert value not in lines[0]
