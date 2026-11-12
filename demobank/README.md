@@ -45,8 +45,6 @@ value counts as unset.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `DEMOBANK_API_KEY` | required | The key every `/v1/*` request must send in `X-API-Key` |
-| `DEMOBANK_ADMIN_ENABLED` | `false` | Turns the admin scenario routes on (#12): `true`, `false`, `1` or `0` |
-| `DEMOBANK_ADMIN_KEY` | empty | The admin key (#12). Required, and different from `DEMOBANK_API_KEY`, when admin is enabled |
 | `DEMOBANK_DATABASE_URL` | required | The PostgreSQL database (a secret: it holds the password). `postgresql://`, `postgres://` and `postgresql+psycopg://` are accepted; the psycopg 3 driver is used. DemoBank uses only the `demobank_sim` schema |
 | `DEMOBANK_SEED` | `42` | Seed of the generated history: a non-negative integer |
 | `DEMOBANK_ANCHOR_DATE` | empty | Last day of the generated history, `YYYY-MM-DD`. Empty means the date of first generation (today in UTC). A date after today is rejected |

@@ -19,14 +19,10 @@ DEMOBANK_DIR = Path(__file__).resolve().parents[2]
 
 ALL_VARIABLES = [env_name(field) for field in Settings.model_fields]
 API_KEY_MARKER = "MARKER-demobank-api-key"
-ADMIN_KEY_MARKER = "MARKER-demobank-admin-key"
 
 MISSING_API_KEY = (
     "DEMOBANK_API_KEY is required but not set (an empty or blank value counts as unset)"
 )
-ADMIN_ENABLED_INVALID = "DEMOBANK_ADMIN_ENABLED must be true, false, 1 or 0"
-ADMIN_KEY_REQUIRED = "DEMOBANK_ADMIN_KEY is required when DEMOBANK_ADMIN_ENABLED is true"
-ADMIN_KEY_EQUAL = "DEMOBANK_ADMIN_KEY must differ from DEMOBANK_API_KEY"
 
 # A valid DEMOBANK_DATABASE_URL, set by `clean_environment` unless a test
 # removes it. Checking the settings never connects to it.
@@ -75,8 +71,6 @@ def error_lines(monkeypatch: pytest.MonkeyPatch, **variables: str) -> list[str]:
 def test_field_names_cover_the_documented_variables() -> None:
     assert ALL_VARIABLES == [
         "DEMOBANK_API_KEY",
-        "DEMOBANK_ADMIN_ENABLED",
-        "DEMOBANK_ADMIN_KEY",
         "DEMOBANK_DATABASE_URL",
         "DEMOBANK_SEED",
         "DEMOBANK_ANCHOR_DATE",
@@ -89,8 +83,6 @@ def test_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = get_settings()
 
     assert settings.demobank_api_key.get_secret_value() == "test-api-key"
-    assert settings.demobank_admin_enabled is False
-    assert settings.demobank_admin_key.get_secret_value() == ""
     assert settings.demobank_database_url.get_secret_value() == DATABASE_URL
     assert settings.demobank_seed == 42
     assert settings.demobank_anchor_date is None
@@ -98,16 +90,12 @@ def test_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_overrides_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEMOBANK_API_KEY", "other-api-key")
-    monkeypatch.setenv("DEMOBANK_ADMIN_ENABLED", "true")
-    monkeypatch.setenv("DEMOBANK_ADMIN_KEY", "other-admin-key")
     monkeypatch.setenv("DEMOBANK_SEED", "1234")
     monkeypatch.setenv("DEMOBANK_ANCHOR_DATE", "2024-02-29")
 
     settings = get_settings()
 
     assert settings.demobank_api_key.get_secret_value() == "other-api-key"
-    assert settings.demobank_admin_enabled is True
-    assert settings.demobank_admin_key.get_secret_value() == "other-admin-key"
     assert settings.demobank_seed == 1234
     assert settings.demobank_anchor_date == date(2024, 2, 29)
 
@@ -157,9 +145,9 @@ def test_env_file_in_the_working_directory_is_not_read(
 def test_constructor_arguments_are_not_a_source(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEMOBANK_API_KEY", "test-api-key")
 
-    settings = Settings(demobank_admin_enabled=True)
+    settings = Settings(demobank_seed=7)
 
-    assert settings.demobank_admin_enabled is False
+    assert settings.demobank_seed == 42
 
 
 # DEMOBANK_API_KEY
@@ -172,94 +160,10 @@ def test_api_key_unset_or_blank(monkeypatch: pytest.MonkeyPatch, blank: str | No
     assert error_lines(monkeypatch, **variables) == [MISSING_API_KEY]
 
 
-# DEMOBANK_ADMIN_ENABLED
-
-
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [
-        ("true", True),
-        ("TRUE", True),
-        ("True", True),
-        ("1", True),
-        ("false", False),
-        ("FALSE", False),
-        ("fAlSe", False),
-        ("0", False),
-    ],
-)
-def test_admin_enabled_accepts_booleans_in_any_case(
-    monkeypatch: pytest.MonkeyPatch, value: str, expected: bool
-) -> None:
-    monkeypatch.setenv("DEMOBANK_API_KEY", "test-api-key")
-    monkeypatch.setenv("DEMOBANK_ADMIN_KEY", "test-admin-key")
-    monkeypatch.setenv("DEMOBANK_ADMIN_ENABLED", value)
-
-    assert get_settings().demobank_admin_enabled is expected
-
-
-@pytest.mark.parametrize("value", ["yes", "no", "maybe", "2", "truee"])
-def test_admin_enabled_that_is_not_a_boolean_is_invalid(
-    monkeypatch: pytest.MonkeyPatch, value: str
-) -> None:
-    lines = error_lines(monkeypatch, DEMOBANK_API_KEY="test-api-key", DEMOBANK_ADMIN_ENABLED=value)
-
-    assert lines == [ADMIN_ENABLED_INVALID]
-
-
-@pytest.mark.parametrize("blank", ["", "   "])
-def test_blank_admin_enabled_gives_the_default(monkeypatch: pytest.MonkeyPatch, blank: str) -> None:
-    monkeypatch.setenv("DEMOBANK_API_KEY", "test-api-key")
-    monkeypatch.setenv("DEMOBANK_ADMIN_ENABLED", blank)
-
-    assert get_settings().demobank_admin_enabled is False
-
-
-# DEMOBANK_ADMIN_KEY
-
-
-@pytest.mark.parametrize("blank", [None, "", "   "], ids=["unset", "empty", "spaces"])
-def test_admin_enabled_without_admin_key_is_invalid(
-    monkeypatch: pytest.MonkeyPatch, blank: str | None
-) -> None:
-    variables = {"DEMOBANK_API_KEY": "test-api-key", "DEMOBANK_ADMIN_ENABLED": "true"}
-    if blank is not None:
-        variables["DEMOBANK_ADMIN_KEY"] = blank
-
-    assert error_lines(monkeypatch, **variables) == [ADMIN_KEY_REQUIRED]
-
-
-def test_admin_enabled_with_admin_key_equal_to_api_key_is_invalid(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    lines = error_lines(
-        monkeypatch,
-        DEMOBANK_API_KEY="same-key",
-        DEMOBANK_ADMIN_ENABLED="1",
-        DEMOBANK_ADMIN_KEY="same-key",
-    )
-
-    assert lines == [ADMIN_KEY_EQUAL]
-
-
-@pytest.mark.parametrize("admin_key", [None, "", "test-api-key"], ids=["unset", "empty", "equal"])
-def test_admin_disabled_accepts_an_empty_or_equal_admin_key(
-    monkeypatch: pytest.MonkeyPatch, admin_key: str | None
-) -> None:
-    monkeypatch.setenv("DEMOBANK_API_KEY", "test-api-key")
-    monkeypatch.setenv("DEMOBANK_ADMIN_ENABLED", "false")
-    if admin_key is not None:
-        monkeypatch.setenv("DEMOBANK_ADMIN_KEY", admin_key)
-
-    settings = get_settings()
-
-    assert settings.demobank_admin_enabled is False
-
-
 def test_all_problems_are_reported_one_per_line(monkeypatch: pytest.MonkeyPatch) -> None:
-    lines = error_lines(monkeypatch, DEMOBANK_ADMIN_ENABLED="true")
+    lines = error_lines(monkeypatch, DEMOBANK_SEED="-1")
 
-    assert lines == [MISSING_API_KEY, ADMIN_KEY_REQUIRED]
+    assert lines == [MISSING_API_KEY, INVALID_SEED]
 
 
 # Secrets never shown
@@ -267,8 +171,6 @@ def test_all_problems_are_reported_one_per_line(monkeypatch: pytest.MonkeyPatch)
 
 def test_repr_and_str_do_not_contain_secret_values(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEMOBANK_API_KEY", API_KEY_MARKER)
-    monkeypatch.setenv("DEMOBANK_ADMIN_ENABLED", "true")
-    monkeypatch.setenv("DEMOBANK_ADMIN_KEY", ADMIN_KEY_MARKER)
 
     settings = get_settings()
 
@@ -279,20 +181,10 @@ def test_repr_and_str_do_not_contain_secret_values(monkeypatch: pytest.MonkeyPat
 @pytest.mark.parametrize(
     "variables",
     [
-        {"DEMOBANK_API_KEY": "   ", "DEMOBANK_ADMIN_KEY": ADMIN_KEY_MARKER},
-        {
-            "DEMOBANK_API_KEY": API_KEY_MARKER,
-            "DEMOBANK_ADMIN_ENABLED": "MARKER-yes",
-            "DEMOBANK_ADMIN_KEY": ADMIN_KEY_MARKER,
-        },
-        {"DEMOBANK_API_KEY": API_KEY_MARKER, "DEMOBANK_ADMIN_ENABLED": "true"},
-        {
-            "DEMOBANK_API_KEY": API_KEY_MARKER,
-            "DEMOBANK_ADMIN_ENABLED": "true",
-            "DEMOBANK_ADMIN_KEY": API_KEY_MARKER,
-        },
+        {"DEMOBANK_API_KEY": "   ", "DEMOBANK_SEED": "MARKER-seed"},
+        {"DEMOBANK_API_KEY": API_KEY_MARKER, "DEMOBANK_ANCHOR_DATE": "MARKER-date"},
     ],
-    ids=["api-key-blank", "admin-enabled-invalid", "admin-key-missing", "admin-key-equal"],
+    ids=["api-key-blank", "anchor-date-invalid"],
 )
 def test_config_error_never_contains_a_value(
     monkeypatch: pytest.MonkeyPatch, variables: dict[str, str]
@@ -348,18 +240,9 @@ def run_module(environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
     "environment",
     [
         {"DEMOBANK_API_KEY": API_KEY_MARKER},
-        {
-            "DEMOBANK_API_KEY": API_KEY_MARKER,
-            "DEMOBANK_ADMIN_ENABLED": "true",
-            "DEMOBANK_ADMIN_KEY": ADMIN_KEY_MARKER,
-        },
-        {
-            "DEMOBANK_API_KEY": API_KEY_MARKER,
-            "DEMOBANK_ADMIN_ENABLED": "false",
-            "DEMOBANK_ADMIN_KEY": API_KEY_MARKER,
-        },
+        {"DEMOBANK_API_KEY": API_KEY_MARKER, "DEMOBANK_SEED": "7"},
     ],
-    ids=["api-key-only", "admin-enabled", "admin-disabled-equal-key"],
+    ids=["api-key-only", "with-seed"],
 )
 def test_module_prints_configuration_ok(environment: dict[str, str]) -> None:
     result = run_module(environment)
@@ -372,45 +255,10 @@ def test_module_prints_configuration_ok(environment: dict[str, str]) -> None:
 @pytest.mark.parametrize(
     ("environment", "expected"),
     [
-        ({"DEMOBANK_ADMIN_KEY": ADMIN_KEY_MARKER}, MISSING_API_KEY),
-        ({"DEMOBANK_API_KEY": " ", "DEMOBANK_ADMIN_KEY": ADMIN_KEY_MARKER}, MISSING_API_KEY),
-        (
-            {
-                "DEMOBANK_API_KEY": API_KEY_MARKER,
-                "DEMOBANK_ADMIN_ENABLED": "yes",
-                "DEMOBANK_ADMIN_KEY": ADMIN_KEY_MARKER,
-            },
-            ADMIN_ENABLED_INVALID,
-        ),
-        (
-            {"DEMOBANK_API_KEY": API_KEY_MARKER, "DEMOBANK_ADMIN_ENABLED": "true"},
-            ADMIN_KEY_REQUIRED,
-        ),
-        (
-            {
-                "DEMOBANK_API_KEY": API_KEY_MARKER,
-                "DEMOBANK_ADMIN_ENABLED": "true",
-                "DEMOBANK_ADMIN_KEY": "  ",
-            },
-            ADMIN_KEY_REQUIRED,
-        ),
-        (
-            {
-                "DEMOBANK_API_KEY": API_KEY_MARKER,
-                "DEMOBANK_ADMIN_ENABLED": "TRUE",
-                "DEMOBANK_ADMIN_KEY": API_KEY_MARKER,
-            },
-            ADMIN_KEY_EQUAL,
-        ),
+        ({}, MISSING_API_KEY),
+        ({"DEMOBANK_API_KEY": " "}, MISSING_API_KEY),
     ],
-    ids=[
-        "api-key-unset",
-        "api-key-blank",
-        "admin-enabled-yes",
-        "admin-key-unset",
-        "admin-key-blank",
-        "admin-key-equal",
-    ],
+    ids=["api-key-unset", "api-key-blank"],
 )
 def test_module_prints_the_problem_without_traceback_or_value(
     environment: dict[str, str], expected: str
@@ -458,9 +306,6 @@ def test_env_example_carries_the_defaults_of_the_optional_variables() -> None:
             default = ""
         expected = str(default).lower() if isinstance(default, bool) else str(default)
         assert values[env_name(field)] == expected
-
-    assert values["DEMOBANK_ADMIN_ENABLED"] == "false"
-    assert values["DEMOBANK_ADMIN_KEY"] == ""
 
 
 def test_env_example_has_the_demobank_database_lines_with_a_comment() -> None:

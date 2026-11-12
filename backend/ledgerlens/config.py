@@ -114,7 +114,6 @@ class Settings(BaseSettings):
     sync_backoff_cap_seconds: _PositiveInt = 120
     stale_threshold_minutes: _PositiveInt = 30
     failure_streak_threshold: _PositiveInt = 3
-    demobank_admin_key: SecretStr = SecretStr("")
     anthropic_api_key: SecretStr = SecretStr("")
     agent_model: str = "claude-opus-5-5"
     otel_exporter_otlp_endpoint: str = ""

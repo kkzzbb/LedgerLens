@@ -367,8 +367,7 @@ def test_large_seed_is_stored_exactly(engine: Engine) -> None:
 
 @pytest.fixture
 def app_environment(monkeypatch: pytest.MonkeyPatch, empty_database_url: URL) -> Iterator[None]:
-    for name in ("DEMOBANK_ADMIN_ENABLED", "DEMOBANK_ADMIN_KEY", "DEMOBANK_ANCHOR_DATE"):
-        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("DEMOBANK_ANCHOR_DATE", raising=False)
     monkeypatch.setenv("DEMOBANK_API_KEY", "test-api-key")
     monkeypatch.setenv(
         "DEMOBANK_DATABASE_URL", empty_database_url.render_as_string(hide_password=False)

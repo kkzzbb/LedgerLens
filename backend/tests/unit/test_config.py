@@ -20,7 +20,6 @@ ALL_VARIABLES = [env_name(field) for field in Settings.model_fields]
 SECRET_MARKERS = {
     "DATABASE_URL": "MARKER-database-url",
     "DEMOBANK_API_KEY": "MARKER-demobank-api-key",
-    "DEMOBANK_ADMIN_KEY": "MARKER-demobank-admin-key",
     "ANTHROPIC_API_KEY": "MARKER-anthropic-api-key",
 }
 INTEGER_VARIABLES = [
@@ -82,7 +81,6 @@ def test_field_names_cover_the_documented_variables() -> None:
         "SYNC_BACKOFF_CAP_SECONDS",
         "STALE_THRESHOLD_MINUTES",
         "FAILURE_STREAK_THRESHOLD",
-        "DEMOBANK_ADMIN_KEY",
         "ANTHROPIC_API_KEY",
         "AGENT_MODEL",
         "OTEL_EXPORTER_OTLP_ENDPOINT",
@@ -104,7 +102,6 @@ def test_defaults() -> None:
     assert settings.sync_backoff_cap_seconds == 120
     assert settings.stale_threshold_minutes == 30
     assert settings.failure_streak_threshold == 3
-    assert settings.demobank_admin_key.get_secret_value() == ""
     assert settings.anthropic_api_key.get_secret_value() == ""
     assert settings.agent_model == "claude-opus-5-5"
     assert settings.otel_exporter_otlp_endpoint == ""
@@ -123,7 +120,6 @@ def test_overrides_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None
         "SYNC_BACKOFF_CAP_SECONDS": "40",
         "STALE_THRESHOLD_MINUTES": "15",
         "FAILURE_STREAK_THRESHOLD": "9",
-        "DEMOBANK_ADMIN_KEY": "other-admin-key",
         "ANTHROPIC_API_KEY": "other-anthropic-key",
         "AGENT_MODEL": "some-other-model",
         "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-collector:4318",
@@ -145,20 +141,9 @@ def test_overrides_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None
     assert settings.sync_backoff_cap_seconds == 40
     assert settings.stale_threshold_minutes == 15
     assert settings.failure_streak_threshold == 9
-    assert settings.demobank_admin_key.get_secret_value() == "other-admin-key"
     assert settings.anthropic_api_key.get_secret_value() == "other-anthropic-key"
     assert settings.agent_model == "some-other-model"
     assert settings.otel_exporter_otlp_endpoint == "http://otel-collector:4318"
-
-
-@pytest.mark.usefixtures("required")
-def test_demo_mode_without_admin_key_is_valid(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DEMO_MODE", "true")
-
-    settings = get_settings()
-
-    assert settings.demo_mode is True
-    assert settings.demobank_admin_key.get_secret_value() == ""
 
 
 # Caching
