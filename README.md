@@ -67,9 +67,13 @@ This starts 4 services:
 | Service | What it is | URL |
 | --- | --- | --- |
 | `frontend` | the UI (Vite dev server) | http://localhost:5173 |
-| `backend` | the API | http://localhost:8000 (health: `/api/health`, API docs: `/docs`) |
-| `demobank` | a simulated bank with fictional data | http://localhost:8100 |
+| `backend` | the API | http://localhost:8000/docs (API docs), http://localhost:8000/api/health |
+| `demobank` | a simulated bank with fictional data | http://localhost:8100/docs (API docs), http://localhost:8100/health |
 | `db` | PostgreSQL | localhost:5432 |
+
+Open the app at http://localhost:5173. The backend and DemoBank are APIs
+without a home page, so their bare addresses (`/`) answer
+`{"detail":"Not Found"}`; use the links above.
 
 `frontend` starts once the backend is healthy. The browser talks only to
 port 5173: the dev server forwards `/api/...` to the backend.
