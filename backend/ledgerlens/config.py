@@ -24,8 +24,6 @@ from pydantic import (
     Field,
     SecretStr,
     ValidationError,
-    ValidationInfo,
-    field_validator,
 )
 from pydantic.fields import FieldInfo
 from pydantic_core import ErrorDetails, PydanticCustomError
@@ -38,7 +36,6 @@ _BOOLEANS = {"true": True, "1": True, "false": False, "0": False}
 # comes from `_reason()`, never from these messages.
 _NOT_INTEGER = "not_integer"
 _NOT_BOOLEAN = "not_boolean"
-_CAP_BELOW_BASE = "cap_below_base"
 
 
 class ConfigError(Exception):
@@ -109,24 +106,11 @@ class Settings(BaseSettings):
     demo_mode: _EnvBool = True
     sync_interval_seconds: _PositiveInt = 120
     sync_page_size: Annotated[_EnvInt, Field(ge=1, le=500)] = 100
-    sync_max_attempts: _PositiveInt = 3
-    sync_backoff_base_seconds: _PositiveInt = 5
-    sync_backoff_cap_seconds: _PositiveInt = 120
     stale_threshold_minutes: _PositiveInt = 30
     failure_streak_threshold: _PositiveInt = 3
     anthropic_api_key: SecretStr = SecretStr("")
     agent_model: str = "claude-opus-5-5"
     otel_exporter_otlp_endpoint: str = ""
-
-    @field_validator("sync_backoff_cap_seconds")
-    @classmethod
-    def _cap_not_below_base(cls, cap: int, info: ValidationInfo) -> int:
-        # The base is declared first, so it is already validated. It is absent
-        # from `info.data` when it is itself invalid, and reported on its own.
-        base = info.data.get("sync_backoff_base_seconds")
-        if base is not None and cap < base:
-            raise PydanticCustomError(_CAP_BELOW_BASE, "cap below base")
-        return cap
 
     @property
     def agents_enabled(self) -> bool:
@@ -157,8 +141,6 @@ def _reason(error: ErrorDetails) -> str:
         return "must be a whole number"
     if kind == _NOT_BOOLEAN:
         return "must be true, false, 1 or 0"
-    if kind == _CAP_BELOW_BASE:
-        return "must not be lower than SYNC_BACKOFF_BASE_SECONDS"
     if kind == "greater_than_equal":
         return f"must be at least {context['ge']}"
     if kind == "less_than_equal":

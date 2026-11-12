@@ -5,7 +5,8 @@ every failure into a `ConnectorError`. Neither the API key nor any response
 body ever reaches an error message or a log.
 """
 
-from typing import Any, TypeGuard
+from types import TracebackType
+from typing import Any, Self, TypeGuard
 from urllib.parse import quote
 
 import httpx
@@ -45,6 +46,17 @@ class DemoBankConnector:
 
     def close(self) -> None:
         self._client.close()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.close()
 
     def list_accounts(self) -> list[dict[str, Any]]:
         body = self._get("/v1/accounts")

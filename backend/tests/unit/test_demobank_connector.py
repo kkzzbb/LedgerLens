@@ -204,3 +204,20 @@ def test_gzip_header_with_a_body_that_is_not_gzip_is_invalid_response() -> None:
         bank.list_accounts()
     assert caught.value.kind == "invalid_response"
     assert caught.value.__context__ is None
+
+
+def test_with_block_closes_the_client() -> None:
+    with connector(lambda _: httpx.Response(200, json=[])) as bank:
+        client = bank._client
+        assert not client.is_closed
+
+    assert client.is_closed
+
+
+def test_with_block_closes_the_client_when_an_exception_is_raised() -> None:
+    bank = connector(lambda _: httpx.Response(200, json=[]))
+
+    with pytest.raises(RuntimeError), bank:
+        raise RuntimeError
+
+    assert bank._client.is_closed
