@@ -4,9 +4,11 @@ import os
 import subprocess
 import sys
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 from alembic.script import ScriptDirectory
+from sqlalchemy import Engine, event
 from sqlalchemy.engine import make_url
 
 from ledgerlens.config import get_settings
@@ -117,6 +119,44 @@ def test_make_engine_is_synchronous_with_pre_ping_and_no_echo() -> None:
         assert engine.url.drivername == "postgresql+psycopg"
         assert engine.echo is False
         assert engine.pool._pre_ping is True
+    finally:
+        engine.dispose()
+
+
+class _Captured(Exception):
+    pass
+
+
+def _driver_connect_arguments(engine: Engine) -> dict[str, Any]:
+    """The keyword arguments the engine hands to the driver's `connect()`.
+
+    The connection attempt is stopped before it reaches the driver.
+    """
+    captured: dict[str, Any] = {}
+
+    @event.listens_for(engine, "do_connect")
+    def capture(dialect: Any, record: Any, cargs: Any, cparams: dict[str, Any]) -> None:
+        captured.update(cparams)
+        raise _Captured
+
+    with pytest.raises(_Captured), engine.connect():
+        pass
+    return captured
+
+
+def test_make_engine_passes_a_5_second_connect_timeout_by_default() -> None:
+    engine = make_engine("postgresql://user:pw@localhost:5432/ledgerlens")
+    try:
+        assert _driver_connect_arguments(engine)["connect_timeout"] == 5
+    finally:
+        engine.dispose()
+
+
+def test_make_engine_passes_the_given_connect_timeout() -> None:
+    url = make_url("postgresql://user:pw@localhost:5432/ledgerlens")
+    engine = make_engine(url, connect_timeout=2)
+    try:
+        assert _driver_connect_arguments(engine)["connect_timeout"] == 2
     finally:
         engine.dispose()
 

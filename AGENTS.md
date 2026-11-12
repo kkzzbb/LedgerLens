@@ -14,6 +14,8 @@ Run from the repo root:
 - `make lint` - lint and format check, backend and frontend (reports only)
 - `make typecheck` - type check, backend and frontend
 - `make test` - lint, format check, type check and every test suite
+- `docker compose up --build` - build and start PostgreSQL and the backend
+  API (port 8000; needs `.env`, copied from `.env.example`)
 - `docker compose up -d db` - start the local PostgreSQL 16
 - `make migrate` - apply the migrations (`DATABASE_URL`, default: the
   Compose db on `localhost`)

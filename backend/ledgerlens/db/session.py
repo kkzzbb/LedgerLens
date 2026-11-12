@@ -18,6 +18,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from ledgerlens.config import get_settings
 
 DRIVER_SCHEME = "postgresql+psycopg"
+# Seconds libpq waits for a connection to be established (its minimum is 2).
+DEFAULT_CONNECT_TIMEOUT = 5
 _PLAIN_SCHEMES = {"postgresql", "postgres"}
 
 
@@ -53,9 +55,18 @@ def database_url(url: str | URL) -> URL:
     raise ValueError("database URL could not be parsed")
 
 
-def make_engine(url: str | URL) -> Engine:
-    """A synchronous engine for `url`, checking connections before use."""
-    return create_engine(database_url(url), pool_pre_ping=True, echo=False)
+def make_engine(url: str | URL, *, connect_timeout: int = DEFAULT_CONNECT_TIMEOUT) -> Engine:
+    """A synchronous engine for `url`, checking connections before use.
+
+    `connect_timeout` (seconds) is handed to the driver, so connecting to a
+    server that does not answer fails instead of hanging.
+    """
+    return create_engine(
+        database_url(url),
+        pool_pre_ping=True,
+        echo=False,
+        connect_args={"connect_timeout": connect_timeout},
+    )
 
 
 @lru_cache(maxsize=1)
