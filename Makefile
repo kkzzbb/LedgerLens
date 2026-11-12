@@ -9,7 +9,7 @@
 # Steps run one after another and in the written order, even under `make -j`.
 .NOTPARALLEL:
 
-.PHONY: help install lint typecheck test migrate
+.PHONY: help install lint typecheck test test-unit test-suites migrate
 
 # Database `make migrate` uses when DATABASE_URL is unset or blank: the Compose
 # db seen from the host, with the demo credentials.
@@ -35,7 +35,13 @@ typecheck: ## Type check backend, DemoBank and frontend (mypy, tsc)
 	cd demobank && uv run mypy
 	cd frontend && npm run typecheck
 
-test: lint typecheck ## Run every check: lint, typecheck, then pytest (backend, DemoBank) and the frontend tests
+test: lint typecheck ## Run every check: lint, typecheck, unit and integration tests (starts a throwaway Postgres in Docker unless TEST_DATABASE_URL is set)
+	scripts/with-test-db.sh $(MAKE) --no-print-directory test-suites
+
+test-unit: lint typecheck ## Like test, but without a database: the integration (db) tests are skipped
+	$(MAKE) --no-print-directory test-suites
+
+test-suites:
 	cd backend && uv run pytest
 	cd demobank && uv run pytest
 	cd frontend && npm test

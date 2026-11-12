@@ -21,8 +21,8 @@ Issues
 
 - An issue is ready to implement when it follows `docs/task-template.md`
   and its "Depends on" issues are closed
-- The kept issues and the build order are in `docs/scope.md`. Issues
-  outside it are closed as "not planned"; do not build them
+- What is built is in `docs/scope.md`. Issues outside it are closed as
+  "not planned"; do not build them
 - Build the vertical slice first. The MVP gate is #80: DemoBank → sync
   → database → dashboard, working end to end before the analyses
   (spending by category, anomaly detection)
