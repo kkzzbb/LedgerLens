@@ -18,6 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import DBAPIError
 
+from ledgerlens.db import models  # noqa: F401  (registers the models on Base.metadata)
 from ledgerlens.db.autogenerate import context_options
 from ledgerlens.db.base import SCHEMA, Base
 from ledgerlens.db.session import database_url, make_engine

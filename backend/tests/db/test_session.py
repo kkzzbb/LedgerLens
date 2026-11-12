@@ -213,8 +213,9 @@ def test_alembic_without_database_url_exits_with_one_line() -> None:
     assert "Traceback" not in result.stdout + result.stderr
 
 
-def test_exactly_one_migration_exists() -> None:
+def test_migrations_form_one_chain_from_0001() -> None:
     script = ScriptDirectory.from_config(alembic_config(make_url("postgresql://unused/unused")))
     revisions = list(script.walk_revisions())
-    assert len(revisions) == 1
-    assert revisions[0].down_revision is None
+    assert len(script.get_heads()) == 1
+    assert revisions[-1].revision == "0001"
+    assert revisions[-1].down_revision is None
