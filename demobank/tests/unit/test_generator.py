@@ -104,6 +104,19 @@ def test_golden_hash() -> None:
     assert digest.hexdigest() == GOLDEN_SHA256
 
 
+def test_readme_documents_the_golden_hash_and_the_anchored_receipts() -> None:
+    readme = (Path(__file__).resolve().parents[2] / "README.md").read_text(encoding="utf-8")
+
+    assert GOLDEN_SHA256 in readme
+    for receipt in ANCHORED_RECEIPTS:
+        amount = f"{generator.cents_to_amount(receipt.amount_cents):,}"
+        row = (
+            f"| `anchor_date - {receipt.offset_days}` | {receipt.customer.name} | {amount} | "
+            f"`{receipt.description}`"
+        )
+        assert row in readme
+
+
 def test_another_seed_gives_other_amounts() -> None:
     first = [t.amount for t in generate(42, date(2026, 6, 30)).transactions]
     second = [t.amount for t in generate(43, date(2026, 6, 30)).transactions]
