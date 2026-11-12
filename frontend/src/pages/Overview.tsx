@@ -158,7 +158,9 @@ export function Overview() {
           >
             {sync.isPending ? "Syncing…" : "Sync now"}
           </button>
-          {sync.isError && <ErrorMessage error={toApiError(sync.error)} />}
+          {sync.isError && (
+            <p role="alert">Sync failed: {toApiError(sync.error).message}</p>
+          )}
         </div>
         {accountsContent}
       </section>

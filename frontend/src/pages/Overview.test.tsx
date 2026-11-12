@@ -275,10 +275,10 @@ describe("sync", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  test("a 502 shows the detail and keeps the cards", async () => {
+  test("a 502 says the sync failed and keeps the cards", async () => {
     mockFetch({
       accounts: accountsBody(account({})),
-      sync: () => json({ detail: "bank_unavailable" }, 502),
+      sync: () => json({ detail: "connection" }, 502),
     });
     renderPage();
     await screen.findByRole("article", { name: "Main account" });
@@ -286,11 +286,39 @@ describe("sync", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sync now" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "bank_unavailable",
+      /^Sync failed: connection$/,
     );
     expect(
       screen.getByRole("article", { name: "Main account" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sync now" })).toBeEnabled();
+  });
+
+  test("a network error says the sync failed and keeps the page", async () => {
+    mockFetch({
+      accounts: accountsBody(account({})),
+      transactions: () =>
+        json({
+          items: [tx({ counterparty_name: "Acme GmbH" })],
+          total: 1,
+          limit: 5,
+          offset: 0,
+        }),
+      sync: () => Promise.reject(new TypeError("Failed to fetch")),
+    });
+    renderPage();
+    await screen.findByRole("article", { name: "Main account" });
+    await screen.findByText("Acme GmbH");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sync now" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /^Sync failed: Network error$/,
+    );
+    expect(
+      screen.getByRole("article", { name: "Main account" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Acme GmbH")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sync now" })).toBeEnabled();
   });
 });
