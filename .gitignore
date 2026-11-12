@@ -1,0 +1,2 @@
+# Local environment file. Copy .env.example to .env; never commit .env
+.env
