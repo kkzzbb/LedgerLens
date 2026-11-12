@@ -1,5 +1,6 @@
-# Local services for LedgerLens: PostgreSQL, the backend API (8000) and
-# DemoBank (8100). Start everything with:
+# Local services for LedgerLens: PostgreSQL, the backend API (8000),
+# DemoBank (8100) and the frontend (5173, the Vite dev server). Start
+# everything with:
 #   docker compose up --build
 # or only the database with:
 #   docker compose up -d db
@@ -73,6 +74,17 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+
+  frontend:
+    build: ./frontend
+    # No env_file: .env sets API_PROXY_TARGET for a dev server on the host.
+    environment:
+      API_PROXY_TARGET: http://backend:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
 
 volumes:
   ledgerlens-db:

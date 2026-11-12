@@ -18,8 +18,29 @@ cp .env.example .env     # demo values; .env is ignored by git
 docker compose up --build
 ```
 
-This starts PostgreSQL (`db`), the backend API on port 8000 and DemoBank
-(`demobank`, a simulated bank with fictional data) on port 8100. When the
+This starts 4 services:
+
+| Service | What it is | URL |
+| --- | --- | --- |
+| `frontend` | the UI (Vite dev server) | http://localhost:5173 |
+| `backend` | the API | http://localhost:8000 (health: `/api/health`, API docs: `/docs`) |
+| `demobank` | a simulated bank with fictional data | http://localhost:8100 |
+| `db` | PostgreSQL | localhost:5432 |
+
+`frontend` starts once the backend is healthy. The browser talks only to
+port 5173: the dev server forwards `/api/...` to the backend.
+
+Demo: open http://localhost:5173 and click "Sync now" on the Overview. The
+account cards and recent transactions fill with DemoBank's data. Before the
+first sync the Overview shows its empty state.
+
+The data lives in a Docker volume, so `docker compose down` then
+`docker compose up` keeps it, and syncing again adds no duplicates.
+`docker compose down -v` deletes all data. On the next start DemoBank
+generates a new history anchored on that day, so the planted anomalies move
+with it.
+
+When the
 backend container starts, it checks its configuration, applies the database
 migrations (`alembic upgrade head`) and then serves the API. It does not
 start when the configuration is invalid or a migration cannot run.
