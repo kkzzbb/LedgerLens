@@ -46,8 +46,8 @@ The fixed list (`backend/ledgerlens/domain/categories.py`):
   the slim scope
 - The rules are checked in order and the first match wins. A rule matches
   a transaction of its direction when one of its keywords appears,
-  case-insensitively, in the counterparty name or the description. A
-  transaction that matches no rule gets `other`
+  case-insensitively, in the counterparty name or the description, after
+  runs of whitespace are collapsed to one space. A transaction that matches no rule gets `other`
 
 ## Anomaly rules
 
@@ -62,7 +62,8 @@ Possible duplicate payment (#28, `domain/duplicate_payment.py`): a debit is
 flagged when there is an earlier debit, in `(booking_date, id)` order (so a
 debit on the same day counts), that:
 
-- has the same counterparty, after the names are trimmed and compared
+- has the same counterparty, after the names are trimmed, runs of
+  whitespace inside them are collapsed to one space, and they are compared
   case-insensitively
 - is at most `ANOMALY_DUPLICATE_WINDOW_DAYS` days earlier
 - differs in amount by at most `ANOMALY_DUPLICATE_AMOUNT_TOLERANCE_PERCENT`
@@ -76,10 +77,11 @@ when its amount is above `ANOMALY_LARGE_EXPENSE_ABSOLUTE`, or above
 `ANOMALY_LARGE_EXPENSE_MULTIPLIER` × its baseline average. The baseline is
 the debits booked in the `ANOMALY_BASELINE_DAYS` days before the debit's
 booking date; debits on the debit's own day, and the debit itself, are
-excluded. It uses the counterparty's debits when there are at least
-`ANOMALY_MIN_HISTORY_COUNT` of them, otherwise the debits of the same
-category. Otherwise there is no average, and only the absolute limit
-applies.
+excluded. It uses the counterparty's debits (names compared as for #28)
+when there are at least `ANOMALY_MIN_HISTORY_COUNT` of them. Otherwise, when
+the debit has a category, it uses the debits of that category when there
+are at least `ANOMALY_MIN_HISTORY_COUNT` of them. Otherwise there is no
+average, and only the absolute limit applies.
 
 - The two #30 limits trigger only when the amount is strictly greater. The
   #28 window and tolerance include their bounds
