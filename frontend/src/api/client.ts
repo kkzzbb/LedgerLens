@@ -2,6 +2,9 @@
 // dev server proxies /api to the backend, so the browser needs no CORS.
 import type {
   AccountListResponse,
+  AnomalyFlagListResponse,
+  AnomalyFlagResponse,
+  AnomalyParams,
   ExpensesReportResponse,
   HealthResponse,
   MonthlyReportResponse,
@@ -42,7 +45,9 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
-export function transactionsQuery(params: TransactionParams): string {
+export function transactionsQuery(
+  params: TransactionParams | AnomalyParams,
+): string {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
@@ -67,6 +72,20 @@ export function getTransactions(
   return request<TransactionListResponse>(
     `/api/transactions${transactionsQuery(params)}`,
   )
+}
+
+export function getAnomalies(
+  params: AnomalyParams = {},
+): Promise<AnomalyFlagListResponse> {
+  return request<AnomalyFlagListResponse>(
+    `/api/anomalies${transactionsQuery(params)}`,
+  )
+}
+
+export function reviewAnomaly(id: number): Promise<AnomalyFlagResponse> {
+  return request<AnomalyFlagResponse>(`/api/anomalies/${String(id)}/review`, {
+    method: 'POST',
+  })
 }
 
 export function runSync(): Promise<SyncResponse> {

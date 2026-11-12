@@ -72,7 +72,7 @@ function mockFetch(backend: Backend) {
   const fetchMock = vi.fn((input: string, init?: RequestInit) => {
     const url = new URL(input, "http://localhost");
     if (url.pathname === "/api/sync" && init?.method === "POST") {
-      return Promise.resolve(backend.sync?.() ?? json({ accounts: [] }));
+      return Promise.resolve(backend.sync?.() ?? json({ accounts: [], anomalies: [] }));
     }
     if (url.pathname === "/api/reports/monthly") {
       return Promise.resolve(
@@ -111,6 +111,7 @@ function renderPage(today?: Date) {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return client;
 }
 
 afterEach(() => {
@@ -227,7 +228,7 @@ describe("sync", () => {
     fireEvent.click(syncing);
     expect(syncCalls(fetchMock)).toBe(1);
 
-    finish(json({ accounts: [] } satisfies SyncResponse));
+    finish(json({ accounts: [], anomalies: [] } satisfies SyncResponse));
     expect(
       await screen.findByRole("button", { name: "Sync now" }),
     ).toBeEnabled();
@@ -261,6 +262,7 @@ describe("sync", () => {
               error: "timeout",
             },
           ],
+          anomalies: [],
         } satisfies SyncResponse);
       },
     });
@@ -327,6 +329,70 @@ describe("sync", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Acme GmbH")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sync now" })).toBeEnabled();
+  });
+});
+
+describe("sync anomaly count", () => {
+  function syncWith(anomalies: SyncResponse["anomalies"]) {
+    return () => json({ accounts: [], anomalies } satisfies SyncResponse);
+  }
+
+  test("sums new potential issues, links to alerts and invalidates them", async () => {
+    mockFetch({
+      sync: syncWith([
+        { rule: "possible_duplicate", created_count: 2, error: null },
+        { rule: "large_expense", created_count: 1, error: null },
+      ]),
+    });
+    const client = renderPage();
+    client.setQueryData(["anomalies", {}], { items: [] });
+
+    fireEvent.click(screen.getByRole("button", { name: "Sync now" }));
+
+    const link = await screen.findByRole("link", {
+      name: "New potential issues: 3",
+    });
+    expect(link).toHaveAttribute("href", "/alerts");
+    expect(
+      screen.queryByText("Some anomaly checks did not run"),
+    ).not.toBeInTheDocument();
+    expect(client.getQueryState(["anomalies", {}])?.isInvalidated).toBe(true);
+  });
+
+  test("zero shows the count without a link", async () => {
+    mockFetch({
+      sync: syncWith([
+        { rule: "possible_duplicate", created_count: 0, error: null },
+        { rule: "large_expense", created_count: 0, error: null },
+      ]),
+    });
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Sync now" }));
+
+    expect(
+      await screen.findByText("New potential issues: 0"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /New potential issues/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  test("a rule error says some checks did not run", async () => {
+    mockFetch({
+      sync: syncWith([
+        { rule: "possible_duplicate", created_count: 1, error: "timeout" },
+        { rule: "large_expense", created_count: 0, error: null },
+      ]),
+    });
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Sync now" }));
+
+    expect(
+      await screen.findByText("Some anomaly checks did not run"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("New potential issues: 1")).toBeInTheDocument();
   });
 });
 
