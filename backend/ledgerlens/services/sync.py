@@ -1,0 +1,189 @@
+"""One synchronization of every bank account, run on demand.
+
+`run_sync` upserts the accounts the connector lists, then syncs each account
+on its own: it fetches the pages after the stored cursor, normalizes the
+records, reads the balance and stores everything in one transaction. A
+`ConnectorError` stores nothing of that account's run and records the failure
+in a separate transaction; the other accounts are still synced.
+
+The account row is the only sync record (`docs/scope.md`): no job table, no
+retry. `last_sync_error` holds an error kind or rejection counts, never a field
+value, a response body or a secret.
+"""
+
+from collections import Counter
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from decimal import Decimal
+from typing import Any, Final
+
+from sqlalchemy.orm import Session
+
+from ledgerlens.connectors.base import BankConnector, ConnectorError
+from ledgerlens.db.models import BankAccount
+from ledgerlens.db.repositories.bank import insert_new_transactions, upsert_bank_account
+from ledgerlens.domain.money import Money
+from ledgerlens.domain.normalization import NormalizedTransaction, normalize_batch
+
+PROVIDER: Final = "demobank"
+SUCCEEDED: Final = "succeeded"
+SUCCEEDED_WITH_ERRORS: Final = "succeeded_with_errors"
+FAILED: Final = "failed"
+ACCOUNT_MISMATCH: Final = "account_mismatch"
+
+Now = Callable[[], datetime]
+SessionFactory = Callable[[], Session]
+
+
+@dataclass(frozen=True)
+class AccountSyncResult:
+    bank_account_id: int
+    external_account_id: str
+    status: str
+    created_count: int
+    skipped_count: int
+    rejected_count: int
+    error: str | None
+    created_ids: list[int]
+
+
+@dataclass(frozen=True)
+class _Account:
+    id: int
+    external_account_id: str
+    last_cursor: str | None
+
+
+@dataclass(frozen=True)
+class _Fetched:
+    records: list[dict[str, Any]]
+    cursor: str | None
+    balance: Decimal
+    balance_at: datetime
+
+
+def utc_now() -> datetime:
+    """The current time, timezone-aware UTC."""
+    return datetime.now(UTC)
+
+
+def run_sync(
+    connector: BankConnector,
+    session_factory: SessionFactory,
+    now: Now,
+    page_size: int,
+) -> list[AccountSyncResult]:
+    """Syncs every account once. A `ConnectorError` from `list_accounts()` propagates."""
+    listed = connector.list_accounts()
+    with session_factory() as session, session.begin():
+        accounts = [_upsert(session, record) for record in listed]
+    return [_sync_account(connector, session_factory, now, page_size, a) for a in accounts]
+
+
+def _text(record: dict[str, Any], key: str) -> str:
+    value = record.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ConnectorError("invalid_response", "the bank sent an unexpected account")
+    return value
+
+
+def _upsert(session: Session, record: dict[str, Any]) -> _Account:
+    account = upsert_bank_account(
+        session,
+        PROVIDER,
+        _text(record, "account_id"),
+        _text(record, "display_name"),
+        _text(record, "currency"),
+    )
+    return _Account(account.id, account.external_account_id, account.last_cursor)
+
+
+def _sync_account(
+    connector: BankConnector,
+    session_factory: SessionFactory,
+    now: Now,
+    page_size: int,
+    account: _Account,
+) -> AccountSyncResult:
+    try:
+        fetched = _fetch(connector, account, page_size)
+    except ConnectorError as error:
+        with session_factory() as session, session.begin():
+            row = session.get_one(BankAccount, account.id)
+            row.last_sync_status = FAILED
+            row.last_sync_at = now()
+            row.last_sync_error = error.kind
+        return AccountSyncResult(
+            account.id, account.external_account_id, FAILED, 0, 0, 0, error.kind, []
+        )
+
+    accepted, rejections = normalize_batch(fetched.records)
+    matching: list[NormalizedTransaction] = []
+    codes = Counter(rejection.code for rejection in rejections)
+    for transaction in accepted:
+        if transaction.external_account_id == account.external_account_id:
+            matching.append(transaction)
+        else:
+            codes[ACCOUNT_MISMATCH] += 1
+    status, error_text = (SUCCEEDED_WITH_ERRORS, _summary(codes)) if codes else (SUCCEEDED, None)
+
+    with session_factory() as session, session.begin():
+        row = session.get_one(BankAccount, account.id)
+        inserted = insert_new_transactions(session, row, matching)
+        timestamp = now()
+        row.last_cursor = fetched.cursor
+        row.last_balance = fetched.balance
+        row.last_balance_at = fetched.balance_at
+        row.last_sync_at = timestamp
+        row.last_successful_sync_at = timestamp
+        row.last_sync_status = status
+        row.last_sync_error = error_text
+    return AccountSyncResult(
+        bank_account_id=account.id,
+        external_account_id=account.external_account_id,
+        status=status,
+        created_count=inserted.created_count,
+        skipped_count=inserted.skipped_count,
+        rejected_count=codes.total(),
+        error=error_text,
+        created_ids=inserted.created_ids,
+    )
+
+
+def _fetch(connector: BankConnector, account: _Account, page_size: int) -> _Fetched:
+    """Every page after the stored cursor, then the balance. Raises `ConnectorError`."""
+    records: list[dict[str, Any]] = []
+    cursor = account.last_cursor
+    while True:
+        page = connector.fetch_transactions(account.external_account_id, cursor, page_size)
+        records.extend(page.records)
+        if page.next_cursor is not None:
+            cursor = page.next_cursor
+        if not page.has_more:
+            break
+        if page.next_cursor is None:
+            # More pages but no cursor to ask for them: it would loop forever.
+            raise ConnectorError("invalid_response", "the bank sent a page without a cursor")
+    balance, balance_at = _balance(connector.get_balance(account.external_account_id))
+    return _Fetched(records, cursor, balance, balance_at)
+
+
+def _balance(record: dict[str, Any]) -> tuple[Decimal, datetime]:
+    amount = record.get("balance")
+    as_of = record.get("as_of")
+    parsed: tuple[Decimal, datetime] | None = None
+    if isinstance(amount, str) and isinstance(as_of, str):
+        try:
+            parsed = (Money(amount).amount, datetime.fromisoformat(as_of))
+        except ValueError:
+            parsed = None
+    # Raised outside the `except` block: the ValueError message holds the value.
+    if parsed is None or parsed[1].tzinfo is None:
+        raise ConnectorError("invalid_response", "the bank sent an unexpected balance")
+    return parsed
+
+
+def _summary(codes: Counter[str]) -> str:
+    """`rejected: account_mismatch=1, invalid_amount=2`, sorted by code."""
+    return "rejected: " + ", ".join(f"{code}={count}" for code, count in sorted(codes.items()))
