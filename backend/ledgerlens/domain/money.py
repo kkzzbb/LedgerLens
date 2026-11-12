@@ -75,6 +75,9 @@ def _to_amount(value: object) -> Decimal:
     else:
         raise TypeError(f"amount must be a Decimal, int or str, not {type(value).__name__}")
 
+    # Checked before any arithmetic: a huge exponent would overflow the context.
+    if number.adjusted() > MAX_AMOUNT.adjusted():
+        raise ValueError(f"amount out of range (max ±{MAX_AMOUNT})")
     with localcontext(_context()):
         if abs(number) > MAX_AMOUNT:
             raise ValueError(f"amount out of range (max ±{MAX_AMOUNT}): {value}")
@@ -184,7 +187,10 @@ def apply_percent(money: Money, pct: Decimal | int) -> Money:
     _require_finite(rate)
     digits = len(money.amount.as_tuple().digits) + len(rate.as_tuple().digits)
     with localcontext(_context(max(PRECISION, digits))):
-        raw = money.amount * rate / 100
+        try:
+            raw = money.amount * rate / 100
+        except Overflow:
+            raise ValueError(f"result out of range (max ±{MAX_AMOUNT})") from None
         if abs(raw) >= _ROUNDS_OUT_OF_RANGE:
             raise ValueError(f"result out of range (max ±{MAX_AMOUNT}): {raw}")
         return Money(raw.quantize(_CENT))
