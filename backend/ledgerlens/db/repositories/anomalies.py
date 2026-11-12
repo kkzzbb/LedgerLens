@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, selectinload
 from ledgerlens.db.models import AnomalyFlag, BankTransaction
 from ledgerlens.domain.anomalies import RuleKey
 from ledgerlens.domain.duplicate_payment import Payment, find_possible_duplicates
+from ledgerlens.domain.large_expense import Expense, find_large_expenses
 
 FlagStatus = Literal["open", "reviewed"]
 
@@ -148,4 +149,45 @@ def flag_possible_duplicates(
             NewFlag("possible_duplicate", f.transaction_id, f.related_transaction_id, f.reason)
             for f in flags
         ],
+    )
+
+
+def flag_large_expenses(
+    session: Session,
+    today: date,
+    evaluation_window_days: int,
+    absolute_limit: Decimal,
+    multiplier: Decimal,
+    min_history_count: int,
+    baseline_days: int,
+) -> int:
+    """Stores a `large_expense` flag for each recent debit that is unusually large.
+
+    Candidates are the debits booked from `today - (evaluation_window_days - 1)`
+    to `today`; history is the debits booked in the `baseline_days` before
+    that. Returns the number of flags inserted.
+    """
+    first_candidate_day = today - timedelta(days=evaluation_window_days - 1)
+    rows = session.execute(
+        select(
+            BankTransaction.id,
+            BankTransaction.booking_date,
+            BankTransaction.amount,
+            BankTransaction.direction,
+            BankTransaction.counterparty_name,
+            BankTransaction.category,
+        ).where(
+            BankTransaction.direction == "debit",
+            BankTransaction.booking_date >= first_candidate_day - timedelta(days=baseline_days),
+            BankTransaction.booking_date <= today,
+        )
+    ).all()
+    expenses = [Expense(*row) for row in rows]
+    candidates = [e for e in expenses if e.booking_date >= first_candidate_day]
+    history = [e for e in expenses if e.booking_date < first_candidate_day]
+    flags = find_large_expenses(
+        candidates, history, absolute_limit, multiplier, min_history_count, baseline_days
+    )
+    return insert_flags(
+        session, [NewFlag("large_expense", f.transaction_id, None, f.reason) for f in flags]
     )

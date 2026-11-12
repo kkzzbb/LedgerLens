@@ -120,6 +120,14 @@ class Settings(BaseSettings):
     anomaly_duplicate_amount_tolerance_percent: Annotated[Decimal, Field(ge=0, le=100)] = Decimal(
         "1"
     )
+    # Debits above this amount are flagged as unusually large
+    anomaly_large_expense_absolute: Annotated[Decimal, Field(ge=0)] = Decimal("5000.00")
+    # Debits above this multiple of their counterparty or category average are flagged
+    anomaly_large_expense_multiplier: Annotated[Decimal, Field(gt=0)] = Decimal("3")
+    # Fewest earlier debits a counterparty or category needs to have an average
+    anomaly_min_history_count: _PositiveInt = 3
+    # Calendar days before a debit that its average is taken over
+    anomaly_baseline_days: _PositiveInt = 90
 
     @property
     def agents_enabled(self) -> bool:
@@ -152,6 +160,8 @@ def _reason(error: ErrorDetails) -> str:
         return "must be true, false, 1 or 0"
     if kind == "greater_than_equal":
         return f"must be at least {context['ge']}"
+    if kind == "greater_than":
+        return f"must be above {context['gt']}"
     if kind == "less_than_equal":
         return f"must be at most {context['le']}"
     return "has an invalid value"
