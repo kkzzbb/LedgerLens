@@ -60,12 +60,18 @@ def make_engine(url: str | URL, *, connect_timeout: int = DEFAULT_CONNECT_TIMEOU
 
     `connect_timeout` (seconds) is handed to the driver, so connecting to a
     server that does not answer fails instead of hanging.
+
+    `search_path` is pinned to `public`. PostgreSQL's default `"$user", public`
+    would otherwise make `ledgerlens` the default schema whenever the database
+    user is named `ledgerlens`, and Alembic would then no longer see the
+    `ledgerlens` tables when comparing models and migrations. Every LedgerLens
+    table is schema-qualified, so nothing else depends on it.
     """
     return create_engine(
         database_url(url),
         pool_pre_ping=True,
         echo=False,
-        connect_args={"connect_timeout": connect_timeout},
+        connect_args={"connect_timeout": connect_timeout, "options": "-c search_path=public"},
     )
 
 
