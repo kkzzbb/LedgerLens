@@ -110,6 +110,33 @@ curl -H "X-API-Key: demo-api-key" localhost:8100/v1/accounts/acc_unknown/balance
 - An unknown account ID gets 404 `{"error":"account_not_found"}`. Without a
   valid key, both routes get 401 first, also for an unknown account ID
 
+### Transactions
+
+```sh
+curl -H "X-API-Key: demo-api-key" "localhost:8100/v1/accounts/acc_operating_001/transactions?limit=2"
+# 200 {"transactions":[{"transaction_id":"txn_000001","account_id":"acc_operating_001",
+#   "booking_date":"2025-12-30","value_date":"2025-12-30","amount":"1645.92","currency":"EUR",
+#   "direction":"credit","counterparty_name":"Fernhollow Cafe",
+#   "counterparty_reference":"DEMO-CP-0006","description":"Customer payment INV-1001",
+#   "status":"booked"},{"transaction_id":"txn_000002",...}],
+#   "next_cursor":"eyJiIjoiMjAyNS0xMi0zMSIsInQiOiJ0eG5fMDAwMDAyIn0=","has_more":true}
+```
+
+- `GET /v1/accounts/{account_id}/transactions?cursor=&limit=` pages through
+  the account's rows in `(booking_date, transaction_id)` order, from the
+  oldest when no cursor is sent
+- `limit` is 1 to 500, 100 by default; outside that range gets 422
+- `next_cursor` points just after the last returned record. Save it and send
+  it later to get only newer records. On an empty page it is the cursor sent
+  (or `null` when none was sent). `has_more` is true only when more records
+  exist after the page at the time of the request
+- The cursor is opaque to clients: URL-safe base64 of
+  `{"b": "<booking_date>", "t": "<transaction_id>"}`, not signed. A cursor
+  that does not decode gets 400 `{"error":"invalid_cursor"}`
+- `amount` is always positive, a string with exactly 2 decimals; `direction`
+  is `debit` or `credit`. An unknown account gets 404
+  `{"error":"account_not_found"}`; without a valid key, 401
+
 With Docker, `docker compose up --build` from the repo root starts DemoBank
 on port 8100 next to the backend (see the root `README.md`).
 
