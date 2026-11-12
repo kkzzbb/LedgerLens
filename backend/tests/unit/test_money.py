@@ -2,7 +2,7 @@ import ast
 import dataclasses
 import decimal
 import operator
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -10,7 +10,14 @@ from typing import Any
 import pytest
 
 from ledgerlens.domain import money as money_module
-from ledgerlens.domain.money import Money, UnsupportedCurrencyError
+from ledgerlens.domain.money import (
+    Money,
+    UnsupportedCurrencyError,
+    apply_percent,
+    percent_of,
+    round_money,
+    sum_money,
+)
 
 MONEY_FILE = Path(money_module.__file__)
 ALLOWED_IMPORTS = {"__future__", "collections.abc", "dataclasses", "decimal", "re", "typing"}
@@ -250,6 +257,150 @@ def test_multiplication_and_division_are_not_defined(
         op(other, Money("1.00"))
 
 
+# Rounding and percentages
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("0.005", "0.01"),
+        ("0.015", "0.02"),
+        ("1.005", "1.01"),
+        ("2.675", "2.68"),
+        ("-0.005", "-0.01"),
+        ("-0.004", "0.00"),
+        ("0.004", "0.00"),
+        ("12.3", "12.30"),
+        ("7", "7.00"),
+        ("-0", "0.00"),
+    ],
+)
+def test_round_money(value: str, expected: str) -> None:
+    result = round_money(Decimal(value))
+    assert result == Decimal(expected)
+    assert str(result) == expected
+
+
+@pytest.mark.parametrize("value", [0.005, 1.0, 1, True, "0.005", None])
+def test_round_money_rejects_non_decimal(value: object) -> None:
+    with pytest.raises(TypeError):
+        round_money(value)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("value", ["NaN", "sNaN", "Infinity", "-Infinity"])
+def test_round_money_rejects_non_finite(value: str) -> None:
+    with pytest.raises(ValueError):
+        round_money(Decimal(value))
+
+
+@pytest.mark.parametrize("value", ["1e30", "-1e30"])
+def test_round_money_too_large_raises_value_error(value: str) -> None:
+    with pytest.raises(ValueError):
+        round_money(Decimal(value))
+
+
+@pytest.mark.parametrize(
+    ("part", "whole", "expected"),
+    [
+        ("1.00", "3.00", "33.33"),
+        ("2.00", "3.00", "66.67"),
+        ("1.00", "800.00", "0.13"),
+        ("-1.00", "800.00", "-0.13"),
+        ("66.67", "200.00", "33.34"),
+        ("0.00", "5.00", "0.00"),
+        ("-0.01", "800.00", "0.00"),
+    ],
+)
+def test_percent_of(part: str, whole: str, expected: str) -> None:
+    result = percent_of(Money(part), Money(whole))
+    assert result == Decimal(expected)
+    assert str(result) == expected
+
+
+def test_percent_of_zero_whole_returns_none() -> None:
+    assert percent_of(Money("5.00"), Money("0.00")) is None
+    assert percent_of(Money("0.00"), Money("0.00")) is None
+
+
+@pytest.mark.parametrize(
+    ("part", "whole"),
+    [
+        (Decimal("1.00"), Money("3.00")),
+        (Money("1.00"), Decimal("3.00")),
+        (1, Money("3.00")),
+        (Money("1.00"), 3.0),
+        (Money("1.00"), None),
+    ],
+)
+def test_percent_of_rejects_non_money(part: object, whole: object) -> None:
+    with pytest.raises(TypeError):
+        percent_of(part, whole)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("amount", "pct", "expected"),
+    [
+        ("100.00", Decimal("12.5"), "12.50"),
+        ("0.10", 5, "0.01"),
+        ("-0.10", 5, "-0.01"),
+        ("100.00", 0, "0.00"),
+        ("33.33", Decimal("33.335"), "11.11"),
+        ("-0.01", 10, "0.00"),
+    ],
+)
+def test_apply_percent(amount: str, pct: Decimal | int, expected: str) -> None:
+    result = apply_percent(Money(amount), pct)
+    assert isinstance(result, Money)
+    assert result == Money(expected)
+    assert str(result) == expected
+
+
+def test_apply_percent_intermediate_is_not_rounded() -> None:
+    # 0.01 x 49.99999999999999999999999999999 / 100 is just below 0.005:
+    # a 28-digit intermediate would round the rate to 50 and give 0.01.
+    pct = Decimal("49.99999999999999999999999999999")
+    assert apply_percent(Money("0.01"), pct) == Money("0.00")
+
+
+@pytest.mark.parametrize("pct", [5.0, True, "5", None])
+def test_apply_percent_rejects_float_bool_and_str(pct: object) -> None:
+    with pytest.raises(TypeError):
+        apply_percent(Money("1.00"), pct)  # type: ignore[arg-type]
+
+
+def test_apply_percent_rejects_non_money() -> None:
+    with pytest.raises(TypeError):
+        apply_percent(Decimal("1.00"), 5)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("pct", ["NaN", "sNaN", "Infinity", "-Infinity"])
+def test_apply_percent_rejects_non_finite(pct: str) -> None:
+    with pytest.raises(ValueError):
+        apply_percent(Money("1.00"), Decimal(pct))
+
+
+@pytest.mark.parametrize(
+    ("amount", "pct"),
+    [
+        ("999999999999.99", 101),
+        ("-999999999999.99", 101),
+        ("1.00", Decimal("1e30")),
+        ("999999999999.99", Decimal("100.000000000001")),
+    ],
+)
+def test_apply_percent_result_out_of_range_raises_value_error(
+    amount: str, pct: Decimal | int
+) -> None:
+    with pytest.raises(ValueError):
+        apply_percent(Money(amount), pct)
+
+
+def test_apply_percent_at_the_range_limit() -> None:
+    limit = Money("999999999999.99")
+    assert apply_percent(limit, 100) == limit
+    assert apply_percent(-limit, 100) == -limit
+
+
 # Serialisation
 
 
@@ -269,6 +420,48 @@ def test_str_has_no_symbol_and_no_separator() -> None:
     assert str(Money(Decimal("1E+2"))) == "100.00"
 
 
+# Sums
+
+
+def test_sum_money_adds_exactly() -> None:
+    items = [Money("0.10"), Money("0.20"), Money("-0.05")]
+    assert sum_money(items) == Money("0.25")
+
+
+def test_sum_money_accepts_a_generator() -> None:
+    def amounts() -> Iterator[Money]:
+        yield Money("0.10")
+        yield Money("0.20")
+
+    assert sum_money(amounts()) == Money("0.30")
+    assert sum_money(Money(n) for n in range(4)) == Money("6.00")
+
+
+def test_sum_money_of_nothing_is_zero() -> None:
+    assert sum_money([]) == Money("0.00")
+    assert str(sum_money([])) == "0.00"
+
+
+def test_sum_money_to_zero_is_not_negative_zero() -> None:
+    assert str(sum_money([Money("-1.00"), Money("1.00")])) == "0.00"
+
+
+@pytest.mark.parametrize("bad", [Decimal("1.00"), 1, 1.0, "1.00", None])
+def test_sum_money_rejects_non_money_items(bad: object) -> None:
+    with pytest.raises(TypeError):
+        sum_money([Money("1.00"), bad])  # type: ignore[list-item]
+
+
+def test_sum_money_total_out_of_range_raises_value_error() -> None:
+    with pytest.raises(ValueError):
+        sum_money([Money("999999999999.99"), Money("0.01")])
+
+
+def test_sum_money_only_the_total_must_be_in_range() -> None:
+    items = [Money("999999999999.99"), Money("0.01"), Money("-0.01")]
+    assert sum_money(items) == Money("999999999999.99")
+
+
 # The global decimal context
 
 
@@ -285,6 +478,26 @@ def test_global_context_is_never_changed() -> None:
     _ = -a
     _ = a < b, a <= b, a > b, a >= b
     _ = str(a), hash(a), a == b
+    _ = round_money(Decimal("2.675"))
+    _ = percent_of(a, b), percent_of(a, Money("0.00"))
+    _ = apply_percent(a, Decimal("12.5"))
+    _ = sum_money([a, b])
     with pytest.raises(ValueError):
         Money("1.234")
+    with pytest.raises(ValueError):
+        round_money(Decimal("1e30"))
     assert _context_state() == before
+
+
+def test_results_do_not_depend_on_the_global_context() -> None:
+    with decimal.localcontext() as ctx:
+        ctx.prec = 3
+        ctx.rounding = decimal.ROUND_DOWN
+        ctx.traps[decimal.InvalidOperation] = False
+        assert Money("999999999999.99") + Money("-0.01") == Money("999999999999.98")
+        assert round_money(Decimal("2.675")) == Decimal("2.68")
+        assert percent_of(Money("1.00"), Money("3.00")) == Decimal("33.33")
+        assert apply_percent(Money("0.10"), 5) == Money("0.01")
+        assert sum_money([Money("123456.78"), Money("0.01")]) == Money("123456.79")
+        with pytest.raises(ValueError):
+            round_money(Decimal("1e30"))

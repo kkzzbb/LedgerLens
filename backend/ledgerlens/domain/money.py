@@ -17,6 +17,7 @@ read or changed.
 """
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import (
     ROUND_HALF_UP,
@@ -36,6 +37,8 @@ PRECISION: Final = 28
 _CENT: Final = Decimal("0.01")
 _ZERO: Final = Decimal("0.00")
 _AMOUNT_PATTERN: Final = re.compile(r"-?[0-9]+(\.[0-9]+)?")
+# Smallest magnitude that rounds half-up to a value outside the range.
+_ROUNDS_OUT_OF_RANGE: Final = Decimal("999999999999.995")
 
 
 class UnsupportedCurrencyError(ValueError):
@@ -134,3 +137,68 @@ class Money:
         if not isinstance(other, Money):
             return NotImplemented
         return self.amount >= other.amount
+
+
+def round_money(value: Decimal) -> Decimal:
+    """Round to 2 decimals with ``ROUND_HALF_UP``; ``-0.00`` becomes ``0.00``.
+
+    This is the one rounding step at the end of a calculation. There is no
+    range limit, but a value too large to hold with 2 decimals at the module
+    precision (28 digits) raises ``ValueError``.
+    """
+    if not isinstance(value, Decimal):
+        raise TypeError(f"value must be a Decimal, not {type(value).__name__}")
+    _require_finite(value)
+    with localcontext(_context()):
+        try:
+            rounded = value.quantize(_CENT)
+        except InvalidOperation:
+            raise ValueError(f"value too large to round to 2 decimals: {value}") from None
+        if rounded == 0:
+            return _ZERO
+        return rounded
+
+
+def percent_of(part: Money, whole: Money) -> Decimal | None:
+    """``part / whole x 100``, rounded once. ``None`` when ``whole`` is zero."""
+    if not isinstance(part, Money) or not isinstance(whole, Money):
+        raise TypeError("percent_of takes two Money values")
+    if whole.amount == 0:
+        return None
+    with localcontext(_context()):
+        raw = part.amount * 100 / whole.amount
+    return round_money(raw)
+
+
+def apply_percent(money: Money, pct: Decimal | int) -> Money:
+    """``money x pct / 100``, rounded once.
+
+    The intermediate value is exact: the precision is raised to fit the full
+    product, so the only rounding is the final ``ROUND_HALF_UP`` step.
+    """
+    if not isinstance(money, Money):
+        raise TypeError(f"money must be Money, not {type(money).__name__}")
+    if isinstance(pct, bool) or not isinstance(pct, Decimal | int):
+        raise TypeError(f"pct must be a Decimal or int, not {type(pct).__name__}")
+    rate = Decimal(pct)
+    _require_finite(rate)
+    digits = len(money.amount.as_tuple().digits) + len(rate.as_tuple().digits)
+    with localcontext(_context(max(PRECISION, digits))):
+        raw = money.amount * rate / 100
+        if abs(raw) >= _ROUNDS_OUT_OF_RANGE:
+            raise ValueError(f"result out of range (max ±{MAX_AMOUNT}): {raw}")
+        return Money(raw.quantize(_CENT))
+
+
+def sum_money(items: Iterable[Money]) -> Money:
+    """Add ``Money`` values exactly. An empty iterable gives ``Money("0.00")``.
+
+    Only the total must be in range; a running total may leave it on the way.
+    """
+    total = _ZERO
+    with localcontext(_context()):
+        for item in items:
+            if not isinstance(item, Money):
+                raise TypeError(f"sum_money takes Money items, not {type(item).__name__}")
+            total += item.amount
+    return Money(total)
