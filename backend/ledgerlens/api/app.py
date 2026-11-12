@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from ledgerlens.api import accounts, health, reports, sync, transactions
+from ledgerlens.api import accounts, anomalies, health, reports, sync, transactions
 from ledgerlens.config import ConfigError, get_settings
 
 
@@ -68,4 +68,5 @@ def create_app() -> FastAPI:
     app.include_router(sync.router)
     app.include_router(transactions.router)
     app.include_router(reports.router)
+    app.include_router(anomalies.router)
     return app
