@@ -1,11 +1,13 @@
 # AGENTS.md
 
-LedgerLens backend and DemoBank: Python 3.12, managed with uv. Design docs live in `docs/`.
+LedgerLens backend and DemoBank (Python 3.12, managed with uv) and frontend
+(React, TypeScript, npm). Design docs live in `docs/`.
 
 Documents
 
 - `docs/process.md` - how work is organized
 - `docs/scope.md` - what is built (and what is not) and in which order
+- `docs/accounting-rules.md` - money, categories, anomaly rules and reports
 
 Commands
 
@@ -17,8 +19,8 @@ Run from the repo root:
 - `make typecheck` - type check, backend, DemoBank and frontend
 - `make test` - lint, format check, type check and every test suite
 - `docker compose up --build` - build and start PostgreSQL, the backend
-  API (port 8000) and DemoBank (port 8100; needs `.env`, copied from
-  `.env.example`)
+  API (port 8000), DemoBank (port 8100) and the frontend (port 5173;
+  needs `.env`, copied from `.env.example`)
 - `docker compose up -d db` - start the local PostgreSQL 16
 - `make migrate` - apply the migrations (`DATABASE_URL`, default: the
   Compose db on `localhost`)
@@ -44,8 +46,8 @@ Run from `demobank/`:
 - `uv run ruff check .` - lint
 - `uv run ruff format .` - format
 - `uv run mypy` - type check (strict)
-- `DEMOBANK_API_KEY=demo-api-key uv run uvicorn --factory demobank.app:create_app --port 8100`
-  - run DemoBank without Docker
+- `DEMOBANK_API_KEY=demo-api-key DEMOBANK_DATABASE_URL=postgresql://ledgerlens:ledgerlens@localhost:5432/ledgerlens uv run uvicorn --factory demobank.app:create_app --port 8100`
+  - run DemoBank without Docker (needs `docker compose up -d db`)
 
 Run from `frontend/`:
 

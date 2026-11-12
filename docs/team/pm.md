@@ -25,12 +25,10 @@ Where to look when the issue is unclear
 
 - The code: check what already exists before describing it (paths,
   tools, commands)
-- `docs/outdated/plan.md` - product scope, rules, acceptance criteria
-- `docs/outdated/architecture.md` - services, layout, decisions,
-  config variables
-- `docs/outdated/tasks.md` - the original one-paragraph tasks
-- The outdated documents are still the reference until they are
-  replaced (#73). Cite them by section, e.g. `plan.md` §9.1
+- `docs/scope.md` - what is built, and what is not
+- `docs/accounting-rules.md` - money, categories, anomaly rules, reports
+- The READMEs: root, `backend/` and `demobank/`
+- `docs/outdated/` is kept as history only; it is not a reference
 
 What a groomed issue includes
 
