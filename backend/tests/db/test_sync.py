@@ -1,20 +1,32 @@
-"""`run_sync` (#21) against PostgreSQL, with the fake connector."""
+"""`run_sync` (#21, #32) against PostgreSQL, with the fake connector."""
 
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from sqlalchemy import Engine, delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from ledgerlens.config import Settings
 from ledgerlens.connectors.base import ConnectorError
-from ledgerlens.db.models import BankAccount, BankTransaction
-from ledgerlens.services.sync import run_sync
+from ledgerlens.db.models import AnomalyFlag, BankAccount, BankTransaction
+from ledgerlens.services import sync
 from tests.unit.test_sync_service import FakeConnector, Step, page, record
 
 pytestmark = pytest.mark.db
 
 NOW = datetime(2026, 11, 12, 10, 0, tzinfo=UTC)
+FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "demobank_seed42.json"
+
+
+def run_sync(
+    connector: FakeConnector, factory: sessionmaker[Session], now: sync.Now, page_size: int
+) -> list[sync.AccountSyncResult]:
+    """The accounts of `sync.run_sync`, with default settings and `page_size`."""
+    settings = Settings.model_construct(sync_page_size=page_size)
+    return sync.run_sync(connector, factory, now, settings).accounts
 
 
 def test_sync_twice_stores_two_pages_once(migrated_engine: Engine) -> None:
@@ -43,6 +55,7 @@ def test_sync_twice_stores_two_pages_once(migrated_engine: Engine) -> None:
 
 
 def clear(session: Session) -> None:
+    session.execute(delete(AnomalyFlag))
     session.execute(delete(BankTransaction))
     session.execute(delete(BankAccount))
 
@@ -107,3 +120,33 @@ def snapshot(factory: sessionmaker[Session]) -> dict[str, dict[str, object]]:
     with factory() as session:
         rows = session.execute(select(BankTransaction.__table__)).mappings().all()
     return {row["external_transaction_id"]: dict(row) for row in rows}
+
+
+def test_seed42_sync_flags_the_two_planted_anomalies_once(migrated_engine: Engine) -> None:
+    factory = sessionmaker(bind=migrated_engine, expire_on_commit=False)
+    records = [record(**row) for row in json.loads(FIXTURE.read_text())]
+    settings = Settings.model_construct()
+    try:
+        first = sync.run_sync(
+            FakeConnector(pages={"acc-1": [page(*records, cursor="c1")]}),
+            factory,
+            lambda: NOW,
+            settings,
+        )
+        second = sync.run_sync(FakeConnector(), factory, lambda: NOW, settings)
+
+        with factory() as session:
+            stored = session.execute(select(AnomalyFlag.rule).order_by(AnomalyFlag.rule)).all()
+        assert first.accounts[0].created_count == len(records)
+        assert [(a.rule, a.created_count, a.error) for a in first.anomalies] == [
+            ("possible_duplicate", 1, None),
+            ("large_expense", 1, None),
+        ]
+        assert [(a.rule, a.created_count, a.error) for a in second.anomalies] == [
+            ("possible_duplicate", 0, None),
+            ("large_expense", 0, None),
+        ]
+        assert [rule for (rule,) in stored] == ["large_expense", "possible_duplicate"]
+    finally:
+        with factory() as session, session.begin():
+            clear(session)

@@ -4,9 +4,10 @@ The repository functions are replaced by fakes that keep rows in memory, so no
 database is needed. `tests/db/test_sync.py` runs the real thing on PostgreSQL.
 """
 
+import logging
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any, Self, cast
 
@@ -22,7 +23,8 @@ from ledgerlens.db.models import BankAccount
 from ledgerlens.db.repositories.bank import InsertResult
 from ledgerlens.domain.normalization import NormalizedTransaction
 from ledgerlens.services import sync
-from ledgerlens.services.sync import AccountSyncResult, run_sync
+from ledgerlens.services.sync import AccountSyncResult, AnomalyRuleResult, SyncResult, run_sync
+from ledgerlens.sync import main as cli_main
 
 NOW = datetime(2026, 11, 12, 10, 0, tzinfo=UTC)
 AS_OF = "2026-11-12T09:59:00Z"
@@ -84,6 +86,8 @@ class FakeConnector:
 class Store:
     accounts: dict[int, BankAccount] = field(default_factory=dict)
     transactions: dict[str, NormalizedTransaction] = field(default_factory=dict)
+    # (rule, today, transactions stored when it ran)
+    rule_calls: list[tuple[str, date, int]] = field(default_factory=list)
 
 
 class FakeSession:
@@ -140,6 +144,16 @@ def store(monkeypatch: pytest.MonkeyPatch) -> Store:
     monkeypatch.setattr(sync, "upsert_bank_account", upsert)
     monkeypatch.setattr(sync, "insert_new_transactions", insert)
     monkeypatch.setattr(sync, "categorize_transactions", lambda session, account_id: 0)
+
+    def rule(name: str) -> Any:
+        def flag(session: FakeSession, today: date, *thresholds: object) -> int:
+            data.rule_calls.append((name, today, len(data.transactions)))
+            return 1
+
+        return flag
+
+    monkeypatch.setattr(sync, "flag_possible_duplicates", rule("possible_duplicate"))
+    monkeypatch.setattr(sync, "flag_large_expenses", rule("large_expense"))
     return data
 
 
@@ -147,8 +161,13 @@ def factory(store: Store) -> sync.SessionFactory:
     return lambda: cast(Session, FakeSession(store))
 
 
+def run_all(connector: FakeConnector, store: Store, page_size: int = 2) -> SyncResult:
+    settings = Settings.model_construct(sync_page_size=page_size)
+    return run_sync(connector, factory(store), lambda: NOW, settings)
+
+
 def run(connector: FakeConnector, store: Store, page_size: int = 2) -> list[AccountSyncResult]:
-    return run_sync(connector, factory(store), lambda: NOW, page_size)
+    return run_all(connector, store, page_size).accounts
 
 
 def page(*records: dict[str, Any], cursor: str | None, more: bool = False) -> TransactionPage:
@@ -294,6 +313,61 @@ def test_invalid_balance_is_an_invalid_response(store: Store, balance: dict[str,
     assert store.accounts[1].last_sync_error == "invalid_response"
 
 
+# Anomaly rules
+
+
+def test_rules_run_once_after_all_accounts_with_today_from_now(store: Store) -> None:
+    connector = FakeConnector(
+        accounts=["acc-1", "acc-2"],
+        pages={
+            "acc-1": [page(record("t1"), cursor="c1")],
+            "acc-2": [ConnectorError("timeout", "x")],
+        },
+    )
+
+    result = run_all(connector, store)
+
+    today = NOW.date()
+    assert store.rule_calls == [("possible_duplicate", today, 1), ("large_expense", today, 1)]
+    assert result.anomalies == [
+        AnomalyRuleResult("possible_duplicate", 1, None),
+        AnomalyRuleResult("large_expense", 1, None),
+    ]
+
+
+def test_rules_do_not_run_when_listing_fails(store: Store) -> None:
+    connector = FakeConnector(list_error=ConnectorError("unauthorized", "x"))
+
+    with pytest.raises(ConnectorError):
+        run_all(connector, store)
+    assert store.rule_calls == []
+
+
+def failing_rule(session: FakeSession, today: date, *thresholds: object) -> int:
+    raise ValueError(SECRET_MARKER)
+
+
+def test_a_failing_rule_is_recorded_and_the_other_still_runs(
+    store: Store, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(sync, "flag_possible_duplicates", failing_rule)
+    connector = FakeConnector(pages={"acc-1": [page(record("t1"), cursor="c1")]})
+
+    with caplog.at_level(logging.WARNING):
+        result = run_all(connector, store)
+
+    assert result.anomalies == [
+        AnomalyRuleResult("possible_duplicate", 0, "ValueError"),
+        AnomalyRuleResult("large_expense", 1, None),
+    ]
+    assert [name for name, _, _ in store.rule_calls] == ["large_expense"]
+    assert list(store.transactions) == ["t1"]
+    assert store.accounts[1].last_sync_status == "succeeded"
+    assert "possible_duplicate" in caplog.text
+    assert "ValueError" in caplog.text
+    assert SECRET_MARKER not in caplog.text
+
+
 # POST /api/sync
 
 
@@ -346,8 +420,28 @@ def test_post_sync_returns_one_result_per_account(store: Store) -> None:
                 "rejected_count": 0,
                 "error": "timeout",
             },
-        ]
+        ],
+        "anomalies": [
+            {"rule": "possible_duplicate", "created_count": 1, "error": None},
+            {"rule": "large_expense", "created_count": 1, "error": None},
+        ],
     }
+    assert SECRET_MARKER not in response.text
+
+
+@pytest.mark.usefixtures("settings")
+def test_post_sync_returns_200_when_a_rule_fails(
+    store: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sync, "flag_large_expenses", failing_rule)
+
+    response = client(FakeConnector(), store).post("/api/sync")
+
+    assert response.status_code == 200
+    assert response.json()["anomalies"] == [
+        {"rule": "possible_duplicate", "created_count": 1, "error": None},
+        {"rule": "large_expense", "created_count": 0, "error": "ValueError"},
+    ]
     assert SECRET_MARKER not in response.text
 
 
@@ -360,3 +454,48 @@ def test_post_sync_returns_502_when_listing_fails(store: Store) -> None:
     assert response.status_code == 502
     assert response.json() == {"detail": "unauthorized"}
     assert store.accounts == {}
+
+
+# uv run python -m ledgerlens.sync
+
+
+@pytest.fixture
+def cli(
+    settings: Settings, store: Store, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[FakeConnector]:
+    """`main()` with the fake connector and session."""
+    connector = FakeConnector(pages={"acc-1": [page(record("t1"), cursor="c1")]})
+
+    class Connector:
+        @staticmethod
+        def from_settings(settings: Settings) -> Any:
+            return connector
+
+    monkeypatch.setattr(FakeConnector, "__enter__", lambda self: self, raising=False)
+    monkeypatch.setattr(FakeConnector, "__exit__", lambda self, *args: None, raising=False)
+    monkeypatch.setattr("ledgerlens.sync.DemoBankConnector", Connector)
+    monkeypatch.setattr("ledgerlens.sync.get_sessionmaker", lambda: factory(store))
+    yield connector
+
+
+def test_cli_prints_one_line_per_rule_after_the_accounts(
+    cli: FakeConnector, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli_main() == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "acc-1 succeeded created=1 rejected=0",
+        "anomalies possible_duplicate created=1",
+        "anomalies large_expense created=1",
+    ]
+
+
+def test_cli_exit_status_ignores_a_failed_rule(
+    cli: FakeConnector, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sync, "flag_possible_duplicates", failing_rule)
+
+    assert cli_main() == 0
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "anomalies possible_duplicate created=0 error=ValueError",
+        "anomalies large_expense created=1",
+    ]
