@@ -139,6 +139,13 @@ ERROR_CASES: list[tuple[str, Handler, str]] = [
     ("invalid_response", lambda _: httpx.Response(200, text=BODY_MARKER), ""),
     (
         "invalid_response",
+        lambda _: httpx.Response(
+            200, headers={"Content-Encoding": "gzip"}, content=BODY_MARKER.encode()
+        ),
+        "",
+    ),
+    (
+        "invalid_response",
         lambda _: httpx.Response(200, json={"transactions": [], "next_cursor": BODY_MARKER}),
         "",
     ),
@@ -184,3 +191,16 @@ def test_from_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     assert bank._client.base_url == BASE_URL
     assert bank._client.headers["X-API-Key"] == API_KEY
     assert bank._client.timeout == httpx.Timeout(10.0, connect=3.0)
+
+
+def test_gzip_header_with_a_body_that_is_not_gzip_is_invalid_response() -> None:
+    bank = connector(
+        lambda _: httpx.Response(
+            200, headers={"Content-Encoding": "gzip"}, content=BODY_MARKER.encode()
+        )
+    )
+
+    with pytest.raises(ConnectorError) as caught:
+        bank.list_accounts()
+    assert caught.value.kind == "invalid_response"
+    assert caught.value.__context__ is None

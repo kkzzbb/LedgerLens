@@ -90,6 +90,11 @@ class DemoBankConnector:
             error = ConnectorError("timeout", "DemoBank did not respond in time")
         except httpx.TransportError:
             error = ConnectorError("connection", "could not connect to DemoBank")
+        except httpx.DecodingError:
+            error = _invalid_response()
+        except httpx.HTTPError:
+            # Last resort, so that no httpx exception escapes the connector.
+            error = ConnectorError("http_error", "the request to DemoBank failed")
         # Raised outside the `except` blocks so no httpx exception is chained.
         if error is not None:
             raise error
