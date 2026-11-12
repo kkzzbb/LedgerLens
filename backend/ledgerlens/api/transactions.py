@@ -1,4 +1,5 @@
 """`GET /api/transactions`: stored bank transactions, filtered and paged.
+`GET /api/categories`: the fixed category list, without touching the database.
 
 The query lives in `db/repositories/transactions.py`. The session factory
 comes from a dependency that tests replace through `app.dependency_overrides`.
@@ -14,6 +15,7 @@ from pydantic import BaseModel
 from ledgerlens.db.models import BankTransaction
 from ledgerlens.db.repositories.transactions import TransactionFilters, list_transactions
 from ledgerlens.db.session import get_sessionmaker
+from ledgerlens.domain.categories import CATEGORIES, CategoryKey, Kind
 from ledgerlens.services.sync import SessionFactory
 
 router = APIRouter(prefix="/api", tags=["transactions"])
@@ -34,6 +36,8 @@ class TransactionResponse(BaseModel):
     counterparty_reference: str | None
     description: str | None
     status: str
+    # A category key, or null while the row is not categorized yet.
+    category: str | None
 
 
 class TransactionListResponse(BaseModel):
@@ -41,6 +45,16 @@ class TransactionListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class CategoryResponse(BaseModel):
+    key: str
+    name: str
+    kind: Kind
+
+
+class CategoryListResponse(BaseModel):
+    items: list[CategoryResponse]
 
 
 def get_session_factory() -> SessionFactory:
@@ -55,6 +69,7 @@ def transactions(
     date_to: date | None = None,
     direction: Literal["debit", "credit"] | None = None,
     q: str | None = None,
+    category: CategoryKey | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> TransactionListResponse:
@@ -65,12 +80,25 @@ def transactions(
             detail="date_from must not be after date_to",
         )
     filters = TransactionFilters(
-        account_id=account_id, date_from=date_from, date_to=date_to, direction=direction, q=q
+        account_id=account_id,
+        date_from=date_from,
+        date_to=date_to,
+        direction=direction,
+        q=q,
+        category=category,
     )
     with session_factory() as session:
         page = list_transactions(session, filters, limit, offset)
         items = [_item(row) for row in page.items]
     return TransactionListResponse(items=items, total=page.total, limit=limit, offset=offset)
+
+
+@router.get("/categories", response_model=CategoryListResponse)
+def categories() -> CategoryListResponse:
+    """Every category, in the order of the fixed list."""
+    return CategoryListResponse(
+        items=[CategoryResponse(key=c.key, name=c.name, kind=c.kind) for c in CATEGORIES]
+    )
 
 
 def _item(row: BankTransaction) -> TransactionResponse:
@@ -86,4 +114,5 @@ def _item(row: BankTransaction) -> TransactionResponse:
         counterparty_reference=row.counterparty_reference,
         description=row.description,
         status=row.status,
+        category=row.category,
     )

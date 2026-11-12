@@ -2,7 +2,8 @@
 
 `run_sync` upserts the accounts the connector lists, then syncs each account
 on its own: it fetches the pages after the stored cursor, normalizes the
-records, reads the balance and stores everything in one transaction. A
+records, reads the balance and stores everything in one transaction, where
+every uncategorized transaction of the account also gets its category. A
 `ConnectorError` stores nothing of that account's run and records the failure
 in a separate transaction; the other accounts are still synced.
 
@@ -22,7 +23,11 @@ from sqlalchemy.orm import Session
 
 from ledgerlens.connectors.base import BankConnector, ConnectorError
 from ledgerlens.db.models import BankAccount
-from ledgerlens.db.repositories.bank import insert_new_transactions, upsert_bank_account
+from ledgerlens.db.repositories.bank import (
+    categorize_transactions,
+    insert_new_transactions,
+    upsert_bank_account,
+)
 from ledgerlens.domain.money import Money
 from ledgerlens.domain.normalization import NormalizedTransaction, normalize_batch
 
@@ -131,6 +136,8 @@ def _sync_account(
     with session_factory() as session, session.begin():
         row = session.get_one(BankAccount, account.id)
         inserted = insert_new_transactions(session, row, matching)
+        # Also covers rows stored before the category column existed.
+        categorize_transactions(session, row.id)
         timestamp = now()
         row.last_cursor = fetched.cursor
         row.last_balance = fetched.balance

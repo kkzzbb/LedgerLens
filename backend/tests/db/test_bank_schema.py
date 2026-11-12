@@ -164,3 +164,38 @@ def test_downgrade_to_0001_drops_both_tables(empty_database_url: URL) -> None:
         engine.dispose()
     assert "bank_account" not in tables
     assert "bank_transaction" not in tables
+
+
+@pytest.mark.parametrize(
+    ("direction", "category"), [("credit", "rent"), ("debit", "revenue"), ("debit", "food")]
+)
+def test_invalid_category_is_rejected(db_session: Session, direction: str, category: str) -> None:
+    account = saved_account(db_session)
+    assert_rejected(db_session, make_transaction(account, direction=direction, category=category))
+
+
+@pytest.mark.parametrize(
+    ("direction", "category"),
+    [("credit", "revenue"), ("credit", "other"), ("debit", "rent"), ("debit", None)],
+)
+def test_valid_category_is_accepted(
+    db_session: Session, direction: str, category: str | None
+) -> None:
+    account = saved_account(db_session)
+    db_session.add(make_transaction(account, direction=direction, category=category))
+    db_session.flush()
+
+
+def test_downgrade_to_0002_drops_the_category_column(empty_database_url: URL) -> None:
+    config = alembic_config(empty_database_url)
+    command.upgrade(config, "head")
+    command.downgrade(config, "0002")
+
+    engine = make_engine(empty_database_url)
+    try:
+        with engine.connect() as connection:
+            columns = inspect(connection).get_columns("bank_transaction", schema="ledgerlens")
+    finally:
+        engine.dispose()
+    assert "category" not in {column["name"] for column in columns}
+    assert "direction" in {column["name"] for column in columns}
