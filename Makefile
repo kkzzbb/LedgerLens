@@ -9,7 +9,11 @@
 # Steps run one after another and in the written order, even under `make -j`.
 .NOTPARALLEL:
 
-.PHONY: help install lint typecheck test
+.PHONY: help install lint typecheck test migrate
+
+# Database `make migrate` uses when DATABASE_URL is unset or blank: the Compose
+# db seen from the host, with the demo credentials.
+LOCAL_DATABASE_URL := postgresql://ledgerlens:ledgerlens@localhost:5432/ledgerlens
 
 help: ## List the targets
 	@awk 'BEGIN { FS = ":.*## " } /^[a-zA-Z_-]+:.*## / { printf "  make %-10s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -30,3 +34,6 @@ typecheck: ## Type check (mypy, tsc)
 test: lint typecheck ## Run every check: lint, typecheck, then pytest and the frontend tests
 	cd backend && uv run pytest
 	cd frontend && npm test
+
+migrate: ## Apply the database migrations (DATABASE_URL, default: the local Compose db)
+	cd backend && DATABASE_URL="$${DATABASE_URL:-$(LOCAL_DATABASE_URL)}" uv run alembic upgrade head
