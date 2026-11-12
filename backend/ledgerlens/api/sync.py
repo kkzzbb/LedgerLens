@@ -29,8 +29,15 @@ class AccountSyncResponse(BaseModel):
     error: str | None
 
 
+class AnomalyRuleResponse(BaseModel):
+    rule: str
+    created_count: int
+    error: str | None
+
+
 class SyncResponse(BaseModel):
     accounts: list[AccountSyncResponse]
+    anomalies: list[AnomalyRuleResponse]
 
 
 def get_connector(settings: Annotated[Settings, Depends(get_settings)]) -> Iterator[BankConnector]:
@@ -53,25 +60,29 @@ def sync(
     connector: Annotated[BankConnector, Depends(get_connector)],
     session_factory: Annotated[SessionFactory, Depends(get_session_factory)],
 ) -> SyncResponse:
-    """200 with one result per account (a failed account included); 502 when listing fails."""
+    """200 with one result per account and per anomaly rule; 502 when listing fails."""
     try:
-        results = run_sync(connector, session_factory, utc_now, settings.sync_page_size)
+        result = run_sync(connector, session_factory, utc_now, settings)
     except ConnectorError as error:
         kind = error.kind
     else:
         return SyncResponse(
             accounts=[
                 AccountSyncResponse(
-                    account_id=result.bank_account_id,
-                    external_account_id=result.external_account_id,
-                    status=result.status,
-                    created_count=result.created_count,
-                    skipped_count=result.skipped_count,
-                    rejected_count=result.rejected_count,
-                    error=result.error,
+                    account_id=account.bank_account_id,
+                    external_account_id=account.external_account_id,
+                    status=account.status,
+                    created_count=account.created_count,
+                    skipped_count=account.skipped_count,
+                    rejected_count=account.rejected_count,
+                    error=account.error,
                 )
-                for result in results
-            ]
+                for account in result.accounts
+            ],
+            anomalies=[
+                AnomalyRuleResponse(rule=a.rule, created_count=a.created_count, error=a.error)
+                for a in result.anomalies
+            ],
         )
     # Raised outside the `except` block so the ConnectorError is not chained.
     raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=kind)

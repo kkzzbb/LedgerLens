@@ -7,22 +7,29 @@ every uncategorized transaction of the account also gets its category. A
 `ConnectorError` stores nothing of that account's run and records the failure
 in a separate transaction; the other accounts are still synced.
 
+After every account, the two anomaly rules run once over all accounts, each in
+its own transaction. A rule that raises rolls back only its own flags: the
+result records the exception class name and the sync goes on.
+
 The account row is the only sync record (`docs/scope.md`): no job table, no
 retry. `last_sync_error` holds an error kind or rejection counts, never a field
 value, a response body or a secret.
 """
 
+import logging
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any, Final
 
 from sqlalchemy.orm import Session
 
+from ledgerlens.config import Settings
 from ledgerlens.connectors.base import BankConnector, ConnectorError
 from ledgerlens.db.models import BankAccount
+from ledgerlens.db.repositories.anomalies import flag_large_expenses, flag_possible_duplicates
 from ledgerlens.db.repositories.bank import (
     categorize_transactions,
     insert_new_transactions,
@@ -36,6 +43,8 @@ SUCCEEDED: Final = "succeeded"
 SUCCEEDED_WITH_ERRORS: Final = "succeeded_with_errors"
 FAILED: Final = "failed"
 ACCOUNT_MISMATCH: Final = "account_mismatch"
+
+logger = logging.getLogger(__name__)
 
 Now = Callable[[], datetime]
 SessionFactory = Callable[[], Session]
@@ -51,6 +60,19 @@ class AccountSyncResult:
     rejected_count: int
     error: str | None
     created_ids: list[int]
+
+
+@dataclass(frozen=True)
+class AnomalyRuleResult:
+    rule: str
+    created_count: int
+    error: str | None
+
+
+@dataclass(frozen=True)
+class SyncResult:
+    accounts: list[AccountSyncResult]
+    anomalies: list[AnomalyRuleResult]
 
 
 @dataclass(frozen=True)
@@ -77,13 +99,65 @@ def run_sync(
     connector: BankConnector,
     session_factory: SessionFactory,
     now: Now,
-    page_size: int,
-) -> list[AccountSyncResult]:
-    """Syncs every account once. A `ConnectorError` from `list_accounts()` propagates."""
+    settings: Settings,
+) -> SyncResult:
+    """Syncs every account once, then runs the anomaly rules once.
+
+    A `ConnectorError` from `list_accounts()` propagates, and no rule runs.
+    """
     listed = connector.list_accounts()
     with session_factory() as session, session.begin():
         accounts = [_upsert(session, record) for record in listed]
-    return [_sync_account(connector, session_factory, now, page_size, a) for a in accounts]
+    results = [
+        _sync_account(connector, session_factory, now, settings.sync_page_size, a) for a in accounts
+    ]
+    today = now().date()
+    anomalies = [_run_rule(session_factory, name, rule, today, settings) for name, rule in _rules()]
+    return SyncResult(results, anomalies)
+
+
+Rule = Callable[[Session, date, Settings], int]
+
+
+def _rules() -> list[tuple[str, Rule]]:
+    """The rules in run order. Looked up at call time so tests can replace them."""
+
+    def duplicates(session: Session, today: date, settings: Settings) -> int:
+        return flag_possible_duplicates(
+            session,
+            today,
+            settings.anomaly_evaluation_window_days,
+            settings.anomaly_duplicate_window_days,
+            settings.anomaly_duplicate_amount_tolerance_percent,
+        )
+
+    def large_expenses(session: Session, today: date, settings: Settings) -> int:
+        return flag_large_expenses(
+            session,
+            today,
+            settings.anomaly_evaluation_window_days,
+            settings.anomaly_large_expense_absolute,
+            settings.anomaly_large_expense_multiplier,
+            settings.anomaly_min_history_count,
+            settings.anomaly_baseline_days,
+        )
+
+    return [("possible_duplicate", duplicates), ("large_expense", large_expenses)]
+
+
+def _run_rule(
+    session_factory: SessionFactory, name: str, rule: Rule, today: date, settings: Settings
+) -> AnomalyRuleResult:
+    try:
+        with session_factory() as session, session.begin():
+            created = rule(session, today, settings)
+    except Exception as error:  # a rule failure must not fail the sync
+        kind = type(error).__name__
+    else:
+        return AnomalyRuleResult(name, created, None)
+    # Class name only: the message may hold values.
+    logger.warning("anomaly rule %s failed: %s", name, kind)
+    return AnomalyRuleResult(name, 0, kind)
 
 
 def _text(record: dict[str, Any], key: str) -> str:
