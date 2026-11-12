@@ -327,6 +327,23 @@ def test_stored_schema_version_that_differs_fails_and_changes_nothing(engine: En
         assert stored_simulation(connection)[0]["schema_version"] == SCHEMA_VERSION + 1
 
 
+def test_version_1_dataset_without_the_planted_debits_fails_startup(engine: Engine) -> None:
+    start(engine)
+    with engine.begin() as connection:
+        ids = [t.transaction_id for t in stored_transactions(connection)[-3:]]
+        connection.execute(transactions.delete().where(transactions.c.transaction_id.in_(ids)))
+        connection.execute(simulation.update().values(schema_version=1))
+
+    with pytest.raises(DatabaseStartupError) as caught:
+        start(engine)
+
+    assert SCHEMA_VERSION == 2
+    assert str(caught.value).startswith(
+        "The demobank_sim schema has version 1 but this DemoBank needs version 2: "
+        "drop the demobank_sim schema"
+    )
+
+
 def test_only_the_demobank_sim_schema_is_touched(engine: Engine) -> None:
     with engine.begin() as connection:
         connection.execute(text("CREATE TABLE public.untouched (id int)"))

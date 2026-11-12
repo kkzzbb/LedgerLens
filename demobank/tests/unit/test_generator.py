@@ -20,10 +20,12 @@ from demobank.generator import (
     ANCHORED_RECEIPTS,
     COUNTERPARTIES,
     CUSTOMERS,
+    PLANTED_DEBITS,
     Dataset,
     Transaction,
     generate,
     history_start,
+    planted_slots,
     schedule,
 )
 
@@ -32,7 +34,7 @@ GENERATOR_SOURCE = Path(generator.__file__).read_text(encoding="utf-8")
 # SHA-256 of `canonical_serialisation(generate(42, date(2026, 6, 30)))`.
 # Update it on purpose only, when the data is meant to change. Then update the
 # hash in `demobank/README.md` and the data of LedgerLens' demo seed (#44) with it.
-GOLDEN_SHA256 = "409debe08911b327eddd03927a4774b003cb5ec6d95cca7798c427fe123ec2af"
+GOLDEN_SHA256 = "d525a15f65d98dd19fcff99cad033158f31c611a73329d9aac371e631027eb3d"
 
 SEEDS = [0, 42, 1234]
 ANCHORS = [date(2026, 6, 30), date(2024, 2, 29), date(2026, 12, 31), date(2027, 1, 1)]
@@ -86,6 +88,11 @@ def ordinary_receipts(dataset: Dataset) -> list[Transaction]:
     ]
 
 
+def history(dataset: Dataset) -> tuple[Transaction, ...]:
+    """The transactions without the planted debits (the last ones)."""
+    return dataset.transactions[: -len(PLANTED_DEBITS)]
+
+
 def anchored_receipts(dataset: Dataset) -> list[Transaction]:
     ordinary = set(ordinary_receipts(dataset))
     return [t for t in dataset.transactions if t.direction == "credit" and t not in ordinary]
@@ -129,7 +136,8 @@ def test_the_schedule_does_not_depend_on_the_seed() -> None:
     for seed in (0, 1, 42):
         dataset = generate(seed, anchor)
         assert [(t.booking_date, t.direction) for t in dataset.transactions] == [
-            (slot.booking_date, slot.direction) for slot in schedule(anchor)
+            (slot.booking_date, slot.direction)
+            for slot in [*schedule(anchor), *planted_slots(anchor)]
         ]
 
 
@@ -139,7 +147,7 @@ def test_amounts_are_drawn_with_randint_in_schedule_order() -> None:
     anchor = date(2026, 6, 30)
     rng = random.Random(7)
     expected = []
-    for slot in schedule(anchor):
+    for slot in [*schedule(anchor), *planted_slots(anchor)]:
         if len(slot.counterparties) > 1:
             rng.choice(slot.counterparties)
         expected.append(Decimal(rng.randint(slot.min_cents, slot.max_cents)).scaleb(-2))
@@ -355,7 +363,7 @@ def test_monthly_constants_match_the_table() -> None:
 
 @pytest.mark.parametrize(("seed", "anchor"), MATRIX, ids=MATRIX_IDS)
 def test_monthly_debits_fall_on_their_days_in_range(seed: int, anchor: date) -> None:
-    transactions = generate(seed, anchor).transactions
+    transactions = history(generate(seed, anchor))
     start = history_start(anchor)
     debits = [t for t in transactions if t.direction == "debit"]
 
@@ -415,7 +423,7 @@ def test_invoice_sequence_ends_near_inv_1131() -> None:
 
 @pytest.mark.parametrize(("seed", "anchor"), MATRIX, ids=MATRIX_IDS)
 def test_bill_numbers_follow_booking_order(seed: int, anchor: date) -> None:
-    transactions = generate(seed, anchor).transactions
+    transactions = history(generate(seed, anchor))
     inventory = [
         t
         for t in transactions
@@ -476,3 +484,42 @@ def test_anchored_receipts_are_the_same_for_every_seed(seed: int, anchor: date) 
     ]
 
     assert sorted(found) == sorted(expected)
+
+
+# Planted anomalies (#12)
+
+EXPECTED_PLANTED = [
+    ("debit", "Sparkvale Cleaning", "DEMO-CP-0041", "455.00", "Deep clean SVC-9001"),
+    ("debit", "Sparkvale Cleaning", "DEMO-CP-0041", "455.00", "Deep clean SVC-9001"),
+    ("debit", "Orchardine Wholesale", "DEMO-CP-0051", "7850.00", "Inventory purchase BILL-9001"),
+]
+
+
+@pytest.mark.parametrize(("seed", "anchor"), MATRIX, ids=MATRIX_IDS)
+def test_planted_debits_follow_the_history_on_the_anchor_date(seed: int, anchor: date) -> None:
+    transactions = generate(seed, anchor).transactions
+    planted = transactions[-3:]
+    count = len(schedule(anchor))
+
+    assert len(transactions) == count + 3
+    assert [
+        (t.direction, t.counterparty_name, t.counterparty_reference, str(t.amount), t.description)
+        for t in planted
+    ] == EXPECTED_PLANTED
+    assert [t.transaction_id for t in planted] == [f"txn_{count + n:06d}" for n in (1, 2, 3)]
+    assert all(t.booking_date == t.value_date == anchor for t in planted)
+    last_history = max((t.booking_date, t.transaction_id) for t in transactions[:-3])
+    assert all(last_history < (t.booking_date, t.transaction_id) for t in planted)
+
+
+def test_readme_documents_the_planted_debits() -> None:
+    readme = (Path(__file__).resolve().parents[2] / "README.md").read_text(encoding="utf-8")
+
+    for debit in PLANTED_DEBITS:
+        amount = generator.cents_to_amount(debit.amount_cents)
+        row = (
+            f" | {debit.counterparty.name} | `{debit.counterparty.reference}` | {amount} | "
+            f"`{debit.description}` |"
+        )
+        assert f"| `{debit.scenario}`" in readme
+        assert row in readme
