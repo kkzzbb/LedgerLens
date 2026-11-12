@@ -88,6 +88,28 @@ curl -i -H "X-API-Key: demo-api-key" localhost:8100/v1/ping   # 200 {"status":"o
   wrong key gets 401 `{"error":"unauthorized"}`, the same body in every case
 - `/docs` and `/openapi.json` are public
 
+### Accounts and balance
+
+```sh
+curl -H "X-API-Key: demo-api-key" localhost:8100/v1/accounts
+# 200 [{"account_id":"acc_operating_001","display_name":"Demo Retail Ltd — Operating","currency":"EUR"}]
+
+curl -H "X-API-Key: demo-api-key" localhost:8100/v1/accounts/acc_operating_001/balance
+# 200 {"account_id":"acc_operating_001","balance":"15234.10","currency":"EUR","as_of":"2026-11-12T09:30:00Z"}
+
+curl -H "X-API-Key: demo-api-key" localhost:8100/v1/accounts/acc_unknown/balance
+# 404 {"error":"account_not_found"}
+```
+
+- `GET /v1/accounts` lists every account, ordered by `account_id`
+- `balance` is `opening_balance` + credits − debits over every row in
+  `demobank_sim.transactions` for the account, computed at request time
+  (never cached). It is a string with exactly 2 decimals, never a JSON
+  number
+- `as_of` is the UTC time the balance was read, ISO 8601
+- An unknown account ID gets 404 `{"error":"account_not_found"}`. Without a
+  valid key, both routes get 401 first, also for an unknown account ID
+
 With Docker, `docker compose up --build` from the repo root starts DemoBank
 on port 8100 next to the backend (see the root `README.md`).
 
