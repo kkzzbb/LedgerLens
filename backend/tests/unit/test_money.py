@@ -501,3 +501,17 @@ def test_results_do_not_depend_on_the_global_context() -> None:
         assert sum_money([Money("123456.78"), Money("0.01")]) == Money("123456.79")
         with pytest.raises(ValueError):
             round_money(Decimal("1e30"))
+
+
+# Huge exponents raise ValueError, not decimal.Overflow
+
+
+@pytest.mark.parametrize("value", [Decimal("1E+1000000"), "1" + "0" * 1000000])
+def test_money_huge_amount_raises_value_error(value: Decimal | str) -> None:
+    with pytest.raises(ValueError, match="out of range"):
+        Money(value)
+
+
+def test_apply_percent_huge_rate_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="out of range"):
+        apply_percent(Money("1.00"), Decimal("1E+1000000"))
