@@ -20,7 +20,7 @@ from fastapi import FastAPI
 from demobank.api import health, v1
 from demobank.api.auth import UnauthorizedError, unauthorized_handler
 from demobank.config import ConfigError, Settings, get_settings
-from demobank.db.startup import DatabaseStartupError, prepare_database
+from demobank.db.startup import DatabaseStartupError, make_engine, prepare_database
 
 # The database step of the startup. It raises `DatabaseStartupError` (one line,
 # without the URL) when the database cannot be prepared.
@@ -59,7 +59,12 @@ def _lifespan(
             except DatabaseStartupError as exc:
                 message = str(exc)
             else:
-                yield
+                # One engine for the request-time queries (#10), disposed on shutdown.
+                app.state.engine = make_engine(settings.demobank_database_url.get_secret_value())
+                try:
+                    yield
+                finally:
+                    app.state.engine.dispose()
                 return
         # Raised outside the `except` blocks so the cause is not chained.
         # Uvicorn logs it and exits with a non-zero status.
