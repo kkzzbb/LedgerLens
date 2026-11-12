@@ -14,6 +14,9 @@ Run from the repo root:
 - `make lint` - lint and format check, backend and frontend (reports only)
 - `make typecheck` - type check, backend and frontend
 - `make test` - lint, format check, type check and every test suite
+- `docker compose up -d db` - start the local PostgreSQL 16
+- `make migrate` - apply the migrations (`DATABASE_URL`, default: the
+  Compose db on `localhost`)
 
 Run from `backend/`:
 
@@ -23,6 +26,10 @@ Run from `backend/`:
 - `uv run ruff check .` - lint
 - `uv run ruff format .` - format
 - `uv run mypy` - type check (strict)
+- `TEST_DATABASE_URL=postgresql://ledgerlens:ledgerlens@localhost:5432/postgres uv run pytest -m db`
+  - the DB tests (skipped when `TEST_DATABASE_URL` is unset)
+- `uv run alembic revision --autogenerate -m "..."` - create a new migration
+  (needs `DATABASE_URL` and a migrated database)
 
 Run from `frontend/`:
 
