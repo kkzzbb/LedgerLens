@@ -17,7 +17,9 @@ Run from the repo root:
 - `make lint` - lint and format check, backend, DemoBank and frontend
   (reports only)
 - `make typecheck` - type check, backend, DemoBank and frontend
-- `make test` - lint, format check, type check and every test suite
+- `make test` - lint, format check, type check, unit and integration
+  tests (starts a throwaway Postgres in Docker unless `TEST_DATABASE_URL` is set)
+- `make test-unit` - the same without a database (integration tests skipped)
 - `docker compose up --build` - build and start PostgreSQL, the backend
   API (port 8000), DemoBank (port 8100) and the frontend (port 5173;
   needs `.env`, copied from `.env.example`)
