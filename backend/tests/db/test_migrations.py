@@ -9,6 +9,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session
 
+from ledgerlens.db import models  # noqa: F401  (registers the models on Base.metadata)
 from ledgerlens.db.autogenerate import context_options
 from ledgerlens.db.base import Base
 from ledgerlens.db.session import make_engine
