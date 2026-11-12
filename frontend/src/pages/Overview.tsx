@@ -107,6 +107,8 @@ export function Overview({ today = new Date() }: { today?: Date }) {
         queryClient.invalidateQueries({ queryKey: ["accounts"] }),
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
         queryClient.invalidateQueries({ queryKey: ["anomalies"] }),
+        queryClient.invalidateQueries({ queryKey: ["reports", "monthly"] }),
+        queryClient.invalidateQueries({ queryKey: ["reports", "expenses"] }),
       ]),
   });
 
