@@ -25,9 +25,6 @@ SECRET_MARKERS = {
 INTEGER_VARIABLES = [
     "SYNC_INTERVAL_SECONDS",
     "SYNC_PAGE_SIZE",
-    "SYNC_MAX_ATTEMPTS",
-    "SYNC_BACKOFF_BASE_SECONDS",
-    "SYNC_BACKOFF_CAP_SECONDS",
     "STALE_THRESHOLD_MINUTES",
     "FAILURE_STREAK_THRESHOLD",
 ]
@@ -76,9 +73,6 @@ def test_field_names_cover_the_documented_variables() -> None:
         "DEMO_MODE",
         "SYNC_INTERVAL_SECONDS",
         "SYNC_PAGE_SIZE",
-        "SYNC_MAX_ATTEMPTS",
-        "SYNC_BACKOFF_BASE_SECONDS",
-        "SYNC_BACKOFF_CAP_SECONDS",
         "STALE_THRESHOLD_MINUTES",
         "FAILURE_STREAK_THRESHOLD",
         "ANTHROPIC_API_KEY",
@@ -97,9 +91,6 @@ def test_defaults() -> None:
     assert settings.demo_mode is True
     assert settings.sync_interval_seconds == 120
     assert settings.sync_page_size == 100
-    assert settings.sync_max_attempts == 3
-    assert settings.sync_backoff_base_seconds == 5
-    assert settings.sync_backoff_cap_seconds == 120
     assert settings.stale_threshold_minutes == 30
     assert settings.failure_streak_threshold == 3
     assert settings.anthropic_api_key.get_secret_value() == ""
@@ -115,9 +106,6 @@ def test_overrides_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None
         "DEMO_MODE": "false",
         "SYNC_INTERVAL_SECONDS": "60",
         "SYNC_PAGE_SIZE": "250",
-        "SYNC_MAX_ATTEMPTS": "7",
-        "SYNC_BACKOFF_BASE_SECONDS": "2",
-        "SYNC_BACKOFF_CAP_SECONDS": "40",
         "STALE_THRESHOLD_MINUTES": "15",
         "FAILURE_STREAK_THRESHOLD": "9",
         "ANTHROPIC_API_KEY": "other-anthropic-key",
@@ -136,9 +124,6 @@ def test_overrides_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None
     assert settings.demo_mode is False
     assert settings.sync_interval_seconds == 60
     assert settings.sync_page_size == 250
-    assert settings.sync_max_attempts == 7
-    assert settings.sync_backoff_base_seconds == 2
-    assert settings.sync_backoff_cap_seconds == 40
     assert settings.stale_threshold_minutes == 15
     assert settings.failure_streak_threshold == 9
     assert settings.anthropic_api_key.get_secret_value() == "other-anthropic-key"
@@ -269,8 +254,6 @@ def test_value_below_one_is_invalid(monkeypatch: pytest.MonkeyPatch, name: str, 
 @pytest.mark.usefixtures("required")
 @pytest.mark.parametrize("name", AT_LEAST_ONE_VARIABLES)
 def test_value_of_one_is_accepted(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
-    # Keep the cap at or above the base whichever of the two is under test.
-    monkeypatch.setenv("SYNC_BACKOFF_BASE_SECONDS", "1")
     monkeypatch.setenv(name, "1")
 
     assert getattr(get_settings(), name.lower()) == 1
@@ -288,34 +271,6 @@ def test_page_size_bounds_are_accepted(monkeypatch: pytest.MonkeyPatch, value: i
     monkeypatch.setenv("SYNC_PAGE_SIZE", str(value))
 
     assert get_settings().sync_page_size == value
-
-
-@pytest.mark.usefixtures("required")
-def test_backoff_cap_below_base_is_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
-    lines = error_lines(monkeypatch, SYNC_BACKOFF_BASE_SECONDS="10", SYNC_BACKOFF_CAP_SECONDS="9")
-
-    assert_only_problem(lines, "SYNC_BACKOFF_CAP_SECONDS")
-
-
-@pytest.mark.usefixtures("required")
-def test_base_above_the_default_backoff_cap_is_invalid(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Only the base is set, above the default cap of 120.
-    lines = error_lines(monkeypatch, SYNC_BACKOFF_BASE_SECONDS="121")
-
-    assert_only_problem(lines, "SYNC_BACKOFF_CAP_SECONDS")
-
-
-@pytest.mark.usefixtures("required")
-def test_backoff_cap_equal_to_base_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SYNC_BACKOFF_BASE_SECONDS", "10")
-    monkeypatch.setenv("SYNC_BACKOFF_CAP_SECONDS", "10")
-
-    settings = get_settings()
-
-    assert settings.sync_backoff_base_seconds == 10
-    assert settings.sync_backoff_cap_seconds == 10
 
 
 @pytest.mark.usefixtures("required")
@@ -386,12 +341,11 @@ def test_repr_and_str_do_not_contain_secret_values(monkeypatch: pytest.MonkeyPat
     "invalid",
     [
         {"SYNC_INTERVAL_SECONDS": "MARKER-not-an-integer"},
-        {"SYNC_BACKOFF_BASE_SECONDS": "77", "SYNC_BACKOFF_CAP_SECONDS": "66"},
         {"SYNC_PAGE_SIZE": "98765"},
         {"STALE_THRESHOLD_MINUTES": "-98765"},
         {"DEMO_MODE": "MARKER-not-a-boolean"},
     ],
-    ids=["non-integer", "cap-below-base", "page-size", "below-one", "demo-mode"],
+    ids=["non-integer", "page-size", "below-one", "demo-mode"],
 )
 def test_config_error_never_contains_a_value(
     monkeypatch: pytest.MonkeyPatch, invalid: dict[str, str]
