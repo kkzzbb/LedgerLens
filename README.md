@@ -1,7 +1,8 @@
 # LedgerLens
 
 Bank sync, accounting and analysis. The backend lives in `backend/`, the
-frontend in `frontend/`, and the design docs in `docs/`.
+simulated bank DemoBank in `demobank/`, the frontend in `frontend/`, and the
+design docs in `docs/`.
 
 ## Run with Docker
 
@@ -14,7 +15,8 @@ cp .env.example .env     # demo values; .env is ignored by git
 docker compose up --build
 ```
 
-This starts PostgreSQL (`db`) and the backend API on port 8000. When the
+This starts PostgreSQL (`db`), the backend API on port 8000 and DemoBank
+(`demobank`, a simulated bank with fictional data) on port 8100. When the
 backend container starts, it checks its configuration, applies the database
 migrations (`alembic upgrade head`) and then serves the API. It does not
 start when the configuration is invalid or a migration cannot run.
@@ -28,6 +30,17 @@ Health check: `http://localhost:8000/api/health`
 
 `docker compose ps` shows the backend as `healthy` once the API answers 200.
 
+DemoBank health check: `http://localhost:8100/health` returns `200` with
+`{"status":"ok"}` (no key needed). Every `/v1/*` route needs the
+`X-API-Key` header with `DEMOBANK_API_KEY` from `.env`:
+
+```sh
+curl -i -H "X-API-Key: demo-api-key" localhost:8100/v1/ping   # 200 {"status":"ok"}
+curl -i localhost:8100/v1/ping                                # 401 {"error":"unauthorized"}
+```
+
+`docker compose ps` shows `demobank` as `healthy` once `/health` answers 200.
+
 ## Running the checks
 
 Prerequisites: GNU make, [uv](https://docs.astral.sh/uv/) and Node 22.
@@ -35,8 +48,8 @@ Prerequisites: GNU make, [uv](https://docs.astral.sh/uv/) and Node 22.
 From the repo root:
 
 ```sh
-make install   # uv sync in backend/, npm ci in frontend/
-make test      # lint, format check, type check and tests for backend and frontend
+make install   # uv sync in backend/ and demobank/, npm ci in frontend/
+make test      # lint, format check, type check and tests for backend, DemoBank and frontend
 ```
 
 Run `make install` before `make test`, and again whenever the dependencies

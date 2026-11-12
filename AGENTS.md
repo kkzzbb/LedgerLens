@@ -1,6 +1,6 @@
 # AGENTS.md
 
-LedgerLens backend: Python 3.12, managed with uv. Design docs live in `docs/`.
+LedgerLens backend and DemoBank: Python 3.12, managed with uv. Design docs live in `docs/`.
 
 Documents
 
@@ -10,12 +10,14 @@ Commands
 
 Run from the repo root:
 
-- `make install` - install backend and frontend dependencies
-- `make lint` - lint and format check, backend and frontend (reports only)
-- `make typecheck` - type check, backend and frontend
+- `make install` - install backend, DemoBank and frontend dependencies
+- `make lint` - lint and format check, backend, DemoBank and frontend
+  (reports only)
+- `make typecheck` - type check, backend, DemoBank and frontend
 - `make test` - lint, format check, type check and every test suite
-- `docker compose up --build` - build and start PostgreSQL and the backend
-  API (port 8000; needs `.env`, copied from `.env.example`)
+- `docker compose up --build` - build and start PostgreSQL, the backend
+  API (port 8000) and DemoBank (port 8100; needs `.env`, copied from
+  `.env.example`)
 - `docker compose up -d db` - start the local PostgreSQL 16
 - `make migrate` - apply the migrations (`DATABASE_URL`, default: the
   Compose db on `localhost`)
@@ -33,6 +35,17 @@ Run from `backend/`:
 - `uv run alembic revision --autogenerate -m "..."` - create a new migration
   (needs `DATABASE_URL` and a migrated database)
 
+Run from `demobank/`:
+
+- `uv sync` - install dependencies
+- `uv run pytest` - the whole suite
+- `uv run pytest tests/unit/test_app.py` - one test file
+- `uv run ruff check .` - lint
+- `uv run ruff format .` - format
+- `uv run mypy` - type check (strict)
+- `DEMOBANK_API_KEY=demo-api-key uv run uvicorn --factory demobank.app:create_app --port 8100`
+  - run DemoBank without Docker
+
 Run from `frontend/`:
 
 - `npm ci` - install dependencies
@@ -44,8 +57,8 @@ Run from `frontend/`:
 
 Rules
 
-- Dependencies are added in `backend/pyproject.toml` with `uv add`. Do not
-  add one without asking
+- Dependencies are added in `backend/pyproject.toml` or
+  `demobank/pyproject.toml` with `uv add`. Do not add one without asking
 - Money is always `Decimal`, never `float`
 - `ledgerlens/domain/` stays pure: no I/O and no framework imports
 - Lint, format, type check and tests must pass before a commit: run
