@@ -33,9 +33,10 @@ Documents
 
 - Documentation lives in `docs/`
 - `docs/scope.md` is the reference for scope
-- `docs/outdated/` holds the original plan, architecture and task list.
-  Use them only for technical detail on kept issues; where they
-  disagree with `docs/scope.md`, the scope file wins
+- `docs/accounting-rules.md` is the reference for the financial rules
+- `docs/outdated/` holds the original plan, architecture and task list,
+  kept as history only. The references are `docs/scope.md`,
+  `docs/accounting-rules.md`, the READMEs and the code
 
 Orchestrator
 
