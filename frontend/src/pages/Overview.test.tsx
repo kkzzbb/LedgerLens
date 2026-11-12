@@ -540,6 +540,62 @@ describe("money in / out per month", () => {
     ).toBeInTheDocument();
   });
 
+  test("a successful sync refreshes the monthly and expenses reports", async () => {
+    let synced = false;
+    mockFetch({
+      monthly: () =>
+        json({
+          from: "2026-01",
+          to: "2026-01",
+          currency: "EUR",
+          months: [
+            synced
+              ? {
+                  month: "2026-01",
+                  money_in: "100.00",
+                  money_out: "40.00",
+                  net: "60.00",
+                }
+              : {
+                  month: "2026-01",
+                  money_in: "0.00",
+                  money_out: "0.00",
+                  net: "0.00",
+                },
+          ],
+        }),
+      sync: () => {
+        synced = true;
+        return json({ accounts: [], anomalies: [] } satisfies SyncResponse);
+      },
+    });
+    const client = renderPage();
+    const expensesKey = ["reports", "expenses", "2026-01", "2026-01"];
+    client.setQueryData(expensesKey, { categories: [] });
+    await screen.findByText("No transactions in this period.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sync now" }));
+
+    const section = screen.getByRole("region", {
+      name: "Money in / out per month",
+    });
+    const table = await within(section).findByRole("table");
+    expect(
+      within(table)
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) =>
+          within(row)
+            .getAllByRole("cell")
+            .map((td) => td.textContent),
+        ),
+    ).toEqual([["2026-01", "€100.00", "€40.00", "€60.00"]]);
+    expect(
+      screen.queryByText("No transactions in this period."),
+    ).not.toBeInTheDocument();
+    expect(client.getQueryState(expensesKey)?.isInvalidated).toBe(true);
+  });
+
   test("an error stays in its section; accounts still render", async () => {
     mockFetch({
       accounts: accountsBody(account({})),
