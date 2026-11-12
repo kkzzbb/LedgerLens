@@ -6,6 +6,7 @@ from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import Engine, text
+from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session
 
 from ledgerlens.db.autogenerate import context_options
@@ -16,13 +17,13 @@ from tests.db.support import alembic_config
 pytestmark = pytest.mark.db
 
 
-def script_head(url: str) -> str:
+def script_head(url: URL) -> str:
     head = ScriptDirectory.from_config(alembic_config(url)).get_current_head()
     assert head is not None
     return head
 
 
-def version_rows(url: str) -> list[str]:
+def version_rows(url: URL) -> list[str]:
     engine = make_engine(url)
     try:
         with engine.connect() as connection:
@@ -32,7 +33,7 @@ def version_rows(url: str) -> list[str]:
         engine.dispose()
 
 
-def current_revision(url: str) -> str | None:
+def current_revision(url: URL) -> str | None:
     engine = make_engine(url)
     try:
         with engine.connect() as connection:
@@ -42,14 +43,14 @@ def current_revision(url: str) -> str | None:
         engine.dispose()
 
 
-def test_upgrade_head_on_an_empty_database(empty_database_url: str) -> None:
+def test_upgrade_head_on_an_empty_database(empty_database_url: URL) -> None:
     command.upgrade(alembic_config(empty_database_url), "head")
 
     assert current_revision(empty_database_url) == script_head(empty_database_url)
     assert version_rows(empty_database_url) == [script_head(empty_database_url)]
 
 
-def test_upgrade_head_twice(empty_database_url: str) -> None:
+def test_upgrade_head_twice(empty_database_url: URL) -> None:
     config = alembic_config(empty_database_url)
     command.upgrade(config, "head")
     command.upgrade(config, "head")
@@ -57,7 +58,7 @@ def test_upgrade_head_twice(empty_database_url: str) -> None:
     assert version_rows(empty_database_url) == [script_head(empty_database_url)]
 
 
-def test_upgrade_downgrade_upgrade(empty_database_url: str) -> None:
+def test_upgrade_downgrade_upgrade(empty_database_url: URL) -> None:
     config = alembic_config(empty_database_url)
     command.upgrade(config, "head")
     command.downgrade(config, "base")
@@ -74,7 +75,7 @@ def test_models_and_migrations_do_not_drift(migrated_engine: Engine) -> None:
         assert compare_metadata(context, Base.metadata) == []
 
 
-def test_autogenerate_ignores_other_schemas(empty_database_url: str) -> None:
+def test_autogenerate_ignores_other_schemas(empty_database_url: URL) -> None:
     command.upgrade(alembic_config(empty_database_url), "head")
     engine = make_engine(empty_database_url)
     try:
@@ -90,7 +91,7 @@ def test_autogenerate_ignores_other_schemas(empty_database_url: str) -> None:
 
 
 def test_db_session_is_on_the_migrated_database(
-    db_session: Session, migrated_database_url: str
+    db_session: Session, migrated_database_url: URL
 ) -> None:
     version = db_session.execute(text("SELECT version_num FROM ledgerlens.alembic_version"))
     assert version.scalar_one() == script_head(migrated_database_url)

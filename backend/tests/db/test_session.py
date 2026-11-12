@@ -7,6 +7,7 @@ from collections.abc import Iterator
 
 import pytest
 from alembic.script import ScriptDirectory
+from sqlalchemy.engine import make_url
 
 from ledgerlens.config import get_settings
 from ledgerlens.db import session as db_session_module
@@ -173,7 +174,7 @@ def test_alembic_without_database_url_exits_with_one_line() -> None:
 
 
 def test_exactly_one_migration_exists() -> None:
-    script = ScriptDirectory.from_config(alembic_config("postgresql://unused/unused"))
+    script = ScriptDirectory.from_config(alembic_config(make_url("postgresql://unused/unused")))
     revisions = list(script.walk_revisions())
     assert len(revisions) == 1
     assert revisions[0].down_revision is None

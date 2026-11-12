@@ -28,18 +28,17 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
-def _configured_url() -> str:
-    url = config.get_main_option("sqlalchemy.url") or os.environ.get("DATABASE_URL") or ""
-    if not url.strip():
+def _url() -> URL:
+    """The database URL, parsed. No function here takes the raw string as an
+    argument, so a traceback cannot show it."""
+    raw = config.get_main_option("sqlalchemy.url") or os.environ.get("DATABASE_URL") or ""
+    if not raw.strip():
         raise SystemExit("DATABASE_URL is required but not set")
-    return url
-
-
-def _parsed(url: str) -> URL:
     try:
-        return database_url(url)
+        return database_url(raw)
     except ValueError as exc:
-        raise SystemExit(str(exc)) from None
+        message = str(exc)
+    raise SystemExit(message)
 
 
 def _without_password(message: str, url: URL) -> str:
@@ -51,7 +50,7 @@ def _without_password(message: str, url: URL) -> str:
 def run_migrations_offline() -> None:
     """Writes the SQL to stdout instead of running it (`alembic upgrade --sql`)."""
     context.configure(
-        url=_parsed(_configured_url()),
+        url=_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         **context_options(),
@@ -63,9 +62,8 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Runs the migrations on the database."""
-    raw_url = _configured_url()
-    url = _parsed(raw_url)
-    engine = make_engine(raw_url)
+    url = _url()
+    engine = make_engine(url)
     try:
         try:
             connection = engine.connect()

@@ -21,21 +21,30 @@ DRIVER_SCHEME = "postgresql+psycopg"
 _PLAIN_SCHEMES = {"postgresql", "postgres"}
 
 
-def database_url(url: str) -> URL:
+_UNSUPPORTED_SCHEME = (
+    "database URL has an unsupported scheme; expected postgresql://, "
+    "postgres:// or postgresql+psycopg://"
+)
+
+
+def _driver_scheme(scheme: str) -> str:
+    if scheme in _PLAIN_SCHEMES or scheme == DRIVER_SCHEME:
+        return DRIVER_SCHEME
+    raise ValueError(_UNSUPPORTED_SCHEME)
+
+
+def database_url(url: str | URL) -> URL:
     """The URL with the psycopg 3 driver, or `ValueError` for another scheme.
 
+    Accepts a string or a SQLAlchemy `URL` (whose repr hides the password).
     The error message does not contain the URL.
     """
+    if isinstance(url, URL):
+        return url.set(drivername=_driver_scheme(url.drivername))
     scheme, separator, rest = url.strip().partition("://")
     if not separator:
         raise ValueError("database URL has no scheme; expected postgresql://")
-    if scheme in _PLAIN_SCHEMES:
-        scheme = DRIVER_SCHEME
-    elif scheme != DRIVER_SCHEME:
-        raise ValueError(
-            "database URL has an unsupported scheme; expected postgresql://, "
-            "postgres:// or postgresql+psycopg://"
-        )
+    scheme = _driver_scheme(scheme)
     try:
         return make_url(f"{scheme}://{rest}")
     except (ArgumentError, ValueError):
@@ -44,7 +53,7 @@ def database_url(url: str) -> URL:
     raise ValueError("database URL could not be parsed")
 
 
-def make_engine(url: str) -> Engine:
+def make_engine(url: str | URL) -> Engine:
     """A synchronous engine for `url`, checking connections before use."""
     return create_engine(database_url(url), pool_pre_ping=True, echo=False)
 

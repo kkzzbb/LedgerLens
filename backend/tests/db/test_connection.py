@@ -2,6 +2,7 @@
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session
 
 from ledgerlens.db.session import make_engine
@@ -9,7 +10,7 @@ from ledgerlens.db.session import make_engine
 pytestmark = pytest.mark.db
 
 
-def test_select_one(empty_database_url: str) -> None:
+def test_select_one(empty_database_url: URL) -> None:
     engine = make_engine(empty_database_url)
     try:
         with Session(engine) as session:
