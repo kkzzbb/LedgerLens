@@ -50,6 +50,11 @@ def insert_new_transactions(
     )
 
 
+def list_bank_accounts(session: Session) -> Sequence[BankAccount]:
+    """Every stored account, ordered by `id`. Read-only."""
+    return session.scalars(select(BankAccount).order_by(BankAccount.id)).all()
+
+
 def upsert_bank_account(
     session: Session,
     provider: str,
