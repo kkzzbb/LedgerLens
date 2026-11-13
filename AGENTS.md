@@ -21,8 +21,12 @@ Run from the repo root:
   tests (starts a throwaway Postgres in Docker unless `TEST_DATABASE_URL` is set)
 - `make test-unit` - the same without a database (integration tests skipped)
 - `docker compose up --build` - build and start PostgreSQL, the backend
-  API (port 8000), DemoBank (port 8100) and the frontend (port 5173;
-  needs `.env`, copied from `.env.example`)
+  API (port 8000), DemoBank (port 8100), the frontend (port 5173) and
+  otel-lgtm (Grafana on port 3000, OTLP on 4317/4318; needs `.env`, copied
+  from `.env.example`)
+- `OTEL_ENABLED` - `true` (as in `.env.example`) sends traces, metrics and
+  logs to `OTEL_EXPORTER_OTLP_ENDPOINT`; unset or `false` sends nothing.
+  The tests always run with it unset
 - `docker compose up -d db` - start the local PostgreSQL 16
 - `make migrate` - apply the migrations (`DATABASE_URL`, default: the
   Compose db on `localhost`)

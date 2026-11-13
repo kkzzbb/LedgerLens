@@ -54,7 +54,8 @@ in `backend/`, the simulated bank DemoBank in `demobank/`, the frontend in
 ## Screenshots
 
 See [`docs/screenshots.md`](docs/screenshots.md) for screenshots of the
-Overview, Transactions, Expenses and Alerts pages.
+Overview, Transactions, Expenses and Alerts pages, and of a sync's trace,
+log line and metrics in Grafana.
 
 ## Quick start
 
@@ -67,7 +68,7 @@ cp .env.example .env     # demo values; .env is ignored by git
 docker compose up --build
 ```
 
-This starts 4 services:
+This starts 5 services:
 
 | Service | What it is | URL |
 | --- | --- | --- |
@@ -75,6 +76,7 @@ This starts 4 services:
 | `backend` | the API | http://localhost:8000/docs (API docs), http://localhost:8000/api/health |
 | `demobank` | a simulated bank with fictional data | http://localhost:8100/docs (API docs), http://localhost:8100/health |
 | `db` | PostgreSQL | localhost:5432 |
+| `otel-lgtm` | Grafana with Prometheus, Loki and Tempo, collecting the telemetry | http://localhost:3000 (Grafana), OTLP on localhost:4317 (gRPC) and localhost:4318 (HTTP) |
 
 Open the app at http://localhost:5173. The backend and DemoBank are APIs
 without a home page, so their bare addresses (`/`) answer
@@ -111,6 +113,51 @@ The data lives in a Docker volume, so `docker compose down` then
 `docker compose up --build` resets the data and the flags: DemoBank
 generates a new history anchored on that day, and the next sync flags the
 planted anomalies again.
+
+## Observability
+
+The sync is traced from the backend through DemoBank to PostgreSQL. The
+backend and DemoBank send traces, metrics and logs over OTLP to the
+`otel-lgtm` container (OpenTelemetry Collector, Prometheus, Loki, Tempo and
+Grafana in one image), and every log line also goes to stdout as one JSON
+object carrying the same `trace_id`. To see it:
+
+1. `docker compose up --build` (with `.env` copied from `.env.example`)
+2. Click **Sync now** on http://localhost:5173 (or
+   `curl -X POST http://localhost:8000/api/sync`)
+3. Open http://localhost:3000 (no login), then **Explore** and pick a data
+   source:
+   - **Tempo**: Search, Service name `ledgerlens-backend`, then the
+     `POST /api/sync` trace. It shows the backend server span, one `GET`
+     per DemoBank request with DemoBank's server and DB spans under it, the
+     backend's DB spans, one `sync account` span and one `anomaly rule`
+     span per rule. **Related logs** on the `POST /api/sync` span opens its
+     log lines in Loki
+   - **Loki**: `{service_name="ledgerlens-backend"} |= "sync finished"`,
+     then expand the line: the **Trace** link under *Links* opens the same
+     trace in Tempo
+   - **Prometheus**:
+     - `sum by (outcome) (ledgerlens_sync_runs_total)` - sync runs by
+       outcome (`succeeded`, `succeeded_with_errors`, `failed`)
+     - `histogram_quantile(0.95, sum by (le) (rate(ledgerlens_sync_duration_seconds_bucket[5m])))` -
+       the 95th percentile of the sync duration
+     - `sum by (result) (ledgerlens_sync_transactions_total)` - transactions
+       created, skipped and rejected (a second sync adds no `created`)
+
+Metrics are exported every 10 seconds, so a sync shows up within about 15
+seconds. The telemetry has no volume: `docker compose down` discards it.
+
+Nothing private is sent: no transaction description, counterparty,
+reference, amount, balance or account number, no API key, `X-API-Key` or
+`Authorization` header, no database URL or password, and no URL query
+string (such as the `?q=` search text or DemoBank's `?cursor=`). Span,
+metric and log attributes are statuses, outcomes, rule names, error kinds,
+counts and route templates; the span `url.path` may hold DemoBank's
+fictional account id.
+
+To turn the export off, set `OTEL_ENABLED=false` in `.env`: nothing is
+sent and the JSON logs still go to stdout. A backend or DemoBank started
+on the host (outside Compose) sends to `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`.
 
 ## API
 
@@ -150,11 +197,13 @@ uv run python -m ledgerlens.sync
   - `ledgerlens/db/` - SQLAlchemy models, repositories and the session
     (migrations in `migrations/`)
   - `ledgerlens/connectors/` - the bank connector for DemoBank
+  - `ledgerlens/telemetry.py` - OpenTelemetry traces, metrics and logs,
+    and the JSON log lines (DemoBank has its own `demobank/telemetry.py`)
 - `demobank/` - the simulated bank, see
   [`demobank/README.md`](demobank/README.md)
 - `frontend/` - the UI (React, Vite)
 - `docs/` - scope, accounting rules and process
-- `docker-compose.yml` - the 4 local services
+- `docker-compose.yml` - the 5 local services
 - `Makefile` - install, lint, type check, test and migrate
 - `scripts/with-test-db.sh` - starts a throwaway PostgreSQL for `make test`
 - `.github/workflows/` - CI
