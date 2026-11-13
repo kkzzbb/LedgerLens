@@ -95,15 +95,21 @@ services:
   # OpenTelemetry Collector, Prometheus, Loki, Tempo and Grafana in one
   # container (anonymous Grafana access, the image's default). No volume:
   # the telemetry is lost on `docker compose down`. The alert rule
-  # "LedgerLens sync failing" is provisioned from the mounted file.
+  # "LedgerLens sync failing" and the dashboard "LedgerLens sync" are
+  # provisioned from the mounted files; GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+  # makes that dashboard Grafana's home page (http://localhost:3000/).
   otel-lgtm:
     image: grafana/otel-lgtm:0.37.0
+    environment:
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /otel-lgtm/ledgerlens-dashboards/ledgerlens-sync.json
     ports:
       - "3000:3000"
       - "4317:4317"
       - "4318:4318"
     volumes:
       - ./observability/grafana/provisioning/alerting/ledgerlens-sync.yaml:/otel-lgtm/grafana/conf/provisioning/alerting/ledgerlens-sync.yaml:ro
+      - ./observability/grafana/provisioning/dashboards/ledgerlens.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/ledgerlens.yaml:ro
+      - ./observability/grafana/dashboards:/otel-lgtm/ledgerlens-dashboards:ro
 
 volumes:
   ledgerlens-db:

@@ -116,6 +116,35 @@ planted anomalies again.
 
 ## Observability
 
+**Quick look:**
+
+1. `docker compose up --build` (with `.env` copied from `.env.example`)
+2. Click **Sync now** on http://localhost:5173
+3. Open http://localhost:3000 (no login): the home page is the
+   **LedgerLens sync** dashboard
+
+Its 9 panels: sync runs by outcome, sync duration p95, transactions
+created/skipped/rejected, anomaly flags by rule, HTTP request rate and
+HTTP latency p95 by route, recent sync traces, recent sync log lines, and
+the alert "LedgerLens sync failing". It is provisioned from
+`observability/grafana/dashboards/ledgerlens-sync.json` (also listed under
+**Dashboards → LedgerLens**, next to the alert rule) and refreshes every
+30 seconds. A new sync shows up in the metric and log panels within about
+30 seconds, but in "Recent sync traces" only after about a minute,
+because Tempo's search lists a new trace only after about 30–40 seconds.
+Before the first sync, panels 2 to 4 show `No sync yet`.
+
+- Panels 1 to 4 count since the backend started: they restart from 0
+  when the backend restarts (for up to 5 minutes after a restart the
+  previous run's values are still added in, until Prometheus drops them)
+- The dashboard is read-only in Grafana: to change it, edit the JSON file
+  and recreate the container (`docker compose up -d --force-recreate otel-lgtm`)
+- The anonymous visitor is not a signed-in Grafana user, so Grafana's
+  per-user calls (such as `/api/user/stars` for starred dashboards) answer
+  401 (visible in the browser's DevTools, Network tab) and may show an
+  "Unauthorized" pop-up. It is expected and harmless: dashboards, Explore
+  and alerting work. Opening the dashboard itself shows no pop-up
+
 The sync is traced from the backend through DemoBank to PostgreSQL. The
 backend and DemoBank send traces, metrics and logs over OTLP to the
 `otel-lgtm` container (OpenTelemetry Collector, Prometheus, Loki, Tempo and
@@ -240,7 +269,8 @@ uv run python -m ledgerlens.sync
   [`demobank/README.md`](demobank/README.md)
 - `frontend/` - the UI (React, Vite)
 - `docs/` - scope, accounting rules and process
-- `observability/` - the Grafana alert rule, provisioned into `otel-lgtm`
+- `observability/` - the Grafana alert rule and the "LedgerLens sync"
+  dashboard, provisioned into `otel-lgtm`
 - `docker-compose.yml` - the 5 local services
 - `Makefile` - install, lint, type check, test and migrate
 - `scripts/with-test-db.sh` - starts a throwaway PostgreSQL for `make test`

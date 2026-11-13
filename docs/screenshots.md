@@ -31,8 +31,18 @@ payment), with the reason for each, ready to mark as reviewed.
 
 ## Observability
 
-Taken from Grafana (http://localhost:3000, **Explore**) on the running
-stack after a sync. The README section "Observability" lists the queries.
+Taken from Grafana (http://localhost:3000) on the running stack after a
+sync: the home dashboard "LedgerLens sync", then **Explore** and the
+alert. The README section "Observability" lists the queries.
+
+### The LedgerLens sync dashboard
+
+The home page of http://localhost:3000 after one sync on a fresh
+database: the 9 panels with data (runs by outcome, duration p95,
+transactions, anomaly flags, HTTP rate and latency by route, the sync
+trace, the `sync finished` log line and the alert in state Normal).
+
+![The LedgerLens sync dashboard after one sync](screenshots/grafana-sync-dashboard.png)
 
 ### A sync trace in Tempo
 

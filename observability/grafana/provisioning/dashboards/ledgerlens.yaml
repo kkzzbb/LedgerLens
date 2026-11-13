@@ -1,0 +1,17 @@
+# Grafana dashboard provider for the "LedgerLens sync" dashboard (#126).
+# docker-compose.yml mounts this file read-only into the otel-lgtm container's
+# provisioning/dashboards folder, next to the image's own
+# grafana-dashboards.yaml and sample.yaml (never one of those names: that would
+# replace the image's file). The dashboards folder of this repo
+# (observability/grafana/dashboards/) is mounted at the path below.
+apiVersion: 1
+
+providers:
+  - name: LedgerLens
+    orgId: 1
+    type: file
+    folder: LedgerLens
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /otel-lgtm/ledgerlens-dashboards
