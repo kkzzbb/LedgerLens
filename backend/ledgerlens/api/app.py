@@ -17,6 +17,7 @@ from fastapi import FastAPI
 from ledgerlens import telemetry
 from ledgerlens.api import accounts, anomalies, health, reports, sync, transactions
 from ledgerlens.config import ConfigError, get_settings
+from ledgerlens.services import sync as sync_service
 
 
 class StripQueryString(logging.Filter):
@@ -55,6 +56,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     else:
         # Before the first database connection, so psycopg queries are traced.
         telemetry.setup(settings)
+        # Every sync outcome series starts at 0, so the first failure counts (#123).
+        sync_service.start_run_counters()
         yield
         return
     # Raised outside the `except` block so the ConfigError is not chained.

@@ -1,0 +1,60 @@
+# Grafana alert rule "LedgerLens sync failing" (#123), provisioned at startup
+# from this file: docker-compose.yml mounts it read-only into the otel-lgtm
+# container's provisioning/alerting folder.
+#
+# It fires when a sync run ended `failed` in the last 10 minutes:
+#   sum(increase(ledgerlens_sync_runs_total{outcome="failed"}[10m])) > 0
+# Evaluated every minute, pending for 1 minute before firing. Before any sync
+# the metric is absent and the rule stays Normal (noDataState: OK). A run that
+# ends `succeeded_with_errors` has another outcome label and never fires it.
+#
+# Labels and annotations hold no customer data: only the rule name,
+# service_name and outcome. No contact point is configured: the alert is only
+# visible in Grafana (Alerting > Alert rules).
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: ledgerlens-sync
+    folder: LedgerLens
+    interval: 1m
+    rules:
+      - uid: ledgerlens-sync-failing
+        title: LedgerLens sync failing
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: sum(increase(ledgerlens_sync_runs_total{outcome="failed"}[10m]))
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+        noDataState: OK
+        execErrState: Error
+        for: 1m
+        labels:
+          service_name: ledgerlens-backend
+          outcome: failed
+        annotations:
+          summary: A LedgerLens sync failed in the last 10 minutes
+          description: >-
+            ledgerlens_sync_runs_total{outcome="failed"} increased in the last
+            10 minutes. Check that DemoBank is up, then run a sync again.
+        isPaused: false

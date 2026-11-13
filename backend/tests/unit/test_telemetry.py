@@ -296,6 +296,22 @@ def test_a_second_sync_counts_a_run_and_no_new_transaction(
 
 
 @pytest.mark.usefixtures("settings")
+def test_startup_exports_every_run_outcome_without_counting_a_run(
+    otel: InMemoryTelemetry,
+) -> None:
+    # The alert's increase() needs a sample before the first failure (#123).
+    before = sums(otel, "ledgerlens.sync.runs")
+
+    with TestClient(create_app()) as started:
+        started.get("/api/categories")
+
+    after = sums(otel, "ledgerlens.sync.runs")
+    outcomes = [(("outcome", o),) for o in ("succeeded", "succeeded_with_errors", "failed")]
+    assert set(outcomes) <= set(after)
+    assert all(after[o] == before.get(o, 0) for o in outcomes)
+
+
+@pytest.mark.usefixtures("settings")
 def test_http_metrics_use_the_route_template(otel: InMemoryTelemetry, store: Store) -> None:
     client(store).post("/api/sync")
 
