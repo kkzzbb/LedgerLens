@@ -166,3 +166,13 @@ def test_enabled_exports_to_the_endpoint_paths(monkeypatch: pytest.MonkeyPatch) 
     assert reader._exporter._endpoint == "http://otel-lgtm:4318/v1/metrics"
     assert logs._endpoint == "http://otel-lgtm:4318/v1/logs"
     reader.shutdown()
+
+
+def test_export_failures_are_written_as_warnings(capsys: pytest.CaptureFixture[str]) -> None:
+    create_app()
+    capsys.readouterr()
+
+    logging.getLogger("opentelemetry.exporter.otlp.proto.http").error("Failed to export")
+
+    [line] = json_lines(capsys.readouterr().out)
+    assert line["level"] == "WARNING"

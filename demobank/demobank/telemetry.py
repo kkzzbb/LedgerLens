@@ -164,6 +164,17 @@ class StripQueryString(logging.Filter):
         return True
 
 
+class _ExportFailuresAsWarnings(logging.Filter):
+    """An unreachable collector is not an application error: the SDK's export
+    errors are written as warnings."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name.startswith("opentelemetry") and record.levelno > logging.WARNING:
+            record.levelno = logging.WARNING
+            record.levelname = logging.getLevelName(logging.WARNING)
+        return True
+
+
 def configure_logging() -> None:
     """JSON lines on stdout for every logger, uvicorn's included. Idempotent.
 
@@ -174,6 +185,7 @@ def configure_logging() -> None:
     if not any(isinstance(handler, _StdoutHandler) for handler in root.handlers):
         handler = _StdoutHandler(sys.stdout)
         handler.setFormatter(JsonFormatter())
+        handler.addFilter(_ExportFailuresAsWarnings())
         root.addHandler(handler)
     if root.level == logging.NOTSET or root.level > logging.INFO:
         root.setLevel(logging.INFO)

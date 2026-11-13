@@ -500,3 +500,14 @@ def test_enabled_exports_to_the_endpoint_paths(monkeypatch: pytest.MonkeyPatch) 
 
 def test_no_header_capture_variable_is_set() -> None:
     assert not [name for name in os.environ if name.startswith("OTEL_INSTRUMENTATION_HTTP_CAP")]
+
+
+def test_export_failures_are_written_as_warnings(capsys: pytest.CaptureFixture[str]) -> None:
+    create_app()
+    capsys.readouterr()
+
+    logging.getLogger("opentelemetry.exporter.otlp.proto.http").error("Failed to export")
+    logging.getLogger("ledgerlens.test").error("a real error")
+
+    exporter, own = json_lines(capsys.readouterr().out)
+    assert (exporter["level"], own["level"]) == ("WARNING", "ERROR")
