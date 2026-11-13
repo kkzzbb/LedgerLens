@@ -51,6 +51,29 @@ See [`docs/scope.md`](docs/scope.md) for what is built. The backend lives
 in `backend/`, the simulated bank DemoBank in `demobank/`, the frontend in
 `frontend/`, and the design docs in `docs/`.
 
+## Screenshots
+
+Taken after one sync from DemoBank.
+
+**Overview:** the account balance, the last sync, recent transactions and
+money in and out per month.
+
+![Overview page](docs/screenshots/overview.png)
+
+**Transactions:** every synced transaction, filtered by date, direction
+and text.
+
+![Transactions page](docs/screenshots/transactions.png)
+
+**Expenses:** spending per category and month.
+
+![Expenses page](docs/screenshots/expenses.png)
+
+**Alerts:** the two flags (an unusually large expense and a possible
+duplicate payment), with the reason for each, ready to mark as reviewed.
+
+![Alerts page](docs/screenshots/alerts.png)
+
 ## Quick start
 
 Prerequisite: Docker with Compose v2.
