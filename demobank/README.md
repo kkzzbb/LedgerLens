@@ -48,6 +48,8 @@ value counts as unset.
 | `DEMOBANK_DATABASE_URL` | required | The PostgreSQL database (a secret: it holds the password). `postgresql://`, `postgres://` and `postgresql+psycopg://` are accepted; the psycopg 3 driver is used. DemoBank uses only the `demobank_sim` schema |
 | `DEMOBANK_SEED` | `42` | Seed of the generated history: a non-negative integer |
 | `DEMOBANK_ANCHOR_DATE` | empty | Last day of the generated history, `YYYY-MM-DD`. Empty means the date of first generation (today in UTC). A date after today is rejected |
+| `OTEL_ENABLED` | `false` | `true` sends traces, metrics and logs over OTLP (service name `demobank`); `.env.example` sets `true`. Logs go to stdout as JSON either way |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | empty | OTLP/HTTP base URL, required when `OTEL_ENABLED` is true: `http://otel-lgtm:4318` in Compose, `http://localhost:4318` from the host |
 
 `uv run python -m demobank.config` prints `Configuration OK`, or one line
 per problem on stderr with exit status 1. No line contains a value. It checks

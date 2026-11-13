@@ -5,18 +5,17 @@ application starts (its lifespan), then the database step runs: it creates
 the `demobank_sim` schema and generates the history on first start (#9). A
 server started with a missing or invalid configuration, or without a
 reachable database, exits at once instead of serving requests that fail
-later:
+later. The lifespan also sets up telemetry (`demobank.telemetry`):
 
     uv run uvicorn --factory demobank.app:create_app --port 8100
 """
 
-import logging
-import sys
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 
 from fastapi import FastAPI
 
+from demobank import telemetry
 from demobank.api import health, v1
 from demobank.api.auth import UnauthorizedError, unauthorized_handler
 from demobank.config import ConfigError, Settings, get_settings
@@ -26,20 +25,9 @@ from demobank.db.startup import DatabaseStartupError, make_engine, prepare_datab
 # without the URL) when the database cannot be prepared.
 DatabaseStep = Callable[[Settings], object]
 
-# DemoBank's own log lines, next to uvicorn's (uvicorn only configures its own loggers).
-_log_handler = logging.StreamHandler(sys.stderr)
-_log_handler.setFormatter(logging.Formatter("%(levelname)-9s %(name)s: %(message)s"))
-
 
 class StartupError(RuntimeError):
     """The application cannot start. The message never holds a setting's value."""
-
-
-def _configure_logging() -> None:
-    logger = logging.getLogger("demobank")
-    logger.setLevel(logging.INFO)
-    if _log_handler not in logger.handlers:
-        logger.addHandler(_log_handler)
 
 
 def _lifespan(
@@ -48,12 +36,14 @@ def _lifespan(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         """Checks the configuration, then prepares the database, before the first request."""
-        _configure_logging()
+        telemetry.configure_logging()
         try:
             settings = get_settings()
         except ConfigError as exc:
             message = f"Invalid configuration:\n{exc}"
         else:
+            # Before the database step, so its queries are traced too.
+            telemetry.setup(settings)
             try:
                 database_step(settings)
             except DatabaseStartupError as exc:
@@ -84,4 +74,6 @@ def create_app(*, database_step: DatabaseStep | None = None) -> FastAPI:
     app.add_exception_handler(UnauthorizedError, unauthorized_handler)
     app.include_router(health.router)
     app.include_router(v1.router)
+    # JSON logs on stdout and the HTTP instrumentation; the exporters come in the lifespan.
+    telemetry.instrument_app(app)
     return app

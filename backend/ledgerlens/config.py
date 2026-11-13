@@ -25,6 +25,7 @@ from pydantic import (
     Field,
     SecretStr,
     ValidationError,
+    model_validator,
 )
 from pydantic.fields import FieldInfo
 from pydantic_core import ErrorDetails, PydanticCustomError
@@ -37,6 +38,7 @@ _BOOLEANS = {"true": True, "1": True, "false": False, "0": False}
 # comes from `_reason()`, never from these messages.
 _NOT_INTEGER = "not_integer"
 _NOT_BOOLEAN = "not_boolean"
+_OTLP_ENDPOINT_REQUIRED = "otlp_endpoint_required"
 
 
 class ConfigError(Exception):
@@ -111,6 +113,9 @@ class Settings(BaseSettings):
     failure_streak_threshold: _PositiveInt = 3
     anthropic_api_key: SecretStr = SecretStr("")
     agent_model: str = "claude-opus-5-5"
+    # Telemetry (#122): export traces, metrics and logs over OTLP/HTTP to this
+    # base URL. The endpoint is required when OTEL_ENABLED is true
+    otel_enabled: _EnvBool = False
     otel_exporter_otlp_endpoint: str = ""
     # Anomaly rules evaluate only the debits booked in the last N calendar days
     anomaly_evaluation_window_days: _PositiveInt = 7
@@ -128,6 +133,12 @@ class Settings(BaseSettings):
     anomaly_min_history_count: _PositiveInt = 3
     # Calendar days before a debit that its average is taken over
     anomaly_baseline_days: _PositiveInt = 90
+
+    @model_validator(mode="after")
+    def _otlp_endpoint_when_enabled(self) -> "Settings":
+        if self.otel_enabled and not self.otel_exporter_otlp_endpoint.strip():
+            raise PydanticCustomError(_OTLP_ENDPOINT_REQUIRED, "endpoint required")
+        return self
 
     @property
     def agents_enabled(self) -> bool:
@@ -169,6 +180,8 @@ def _reason(error: ErrorDetails) -> str:
 
 def _problem(error: ErrorDetails) -> str:
     """One line for one validation error: the variable name, then the reason."""
+    if error["type"] == _OTLP_ENDPOINT_REQUIRED:
+        return "OTEL_EXPORTER_OTLP_ENDPOINT is required when OTEL_ENABLED is true"
     name = env_name(str(error["loc"][0])) if error["loc"] else "Configuration"
     return f"{name} {_reason(error)}"
 

@@ -1,6 +1,7 @@
 # Local services for LedgerLens: PostgreSQL, the backend API (8000),
-# DemoBank (8100) and the frontend (5173, the Vite dev server). Start
-# everything with:
+# DemoBank (8100), the frontend (5173, the Vite dev server) and otel-lgtm
+# (Grafana on 3000, OTLP on 4317/4318), which collects and stores the
+# traces, metrics and logs of the backend and DemoBank. Start everything with:
 #   docker compose up --build
 # or only the database with:
 #   docker compose up -d db
@@ -31,6 +32,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      # Started, not healthy: a slow Grafana start never blocks the app.
+      otel-lgtm:
+        condition: service_started
     healthcheck:
       # The slim image has no curl. Succeeds only on a 200.
       test:
@@ -57,6 +61,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      otel-lgtm:
+        condition: service_started
     healthcheck:
       # The slim image has no curl. Succeeds only on a 200.
       test:
@@ -85,6 +91,16 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+  # OpenTelemetry Collector, Prometheus, Loki, Tempo and Grafana in one
+  # container (anonymous Grafana access, the image's default). No volume:
+  # the telemetry is lost on `docker compose down`.
+  otel-lgtm:
+    image: grafana/otel-lgtm:0.37.0
+    ports:
+      - "3000:3000"
+      - "4317:4317"
+      - "4318:4318"
 
 volumes:
   ledgerlens-db:

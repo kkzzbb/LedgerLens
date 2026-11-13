@@ -35,6 +35,14 @@ UNSUPPORTED_SCHEME = "DEMOBANK_DATABASE_URL has an unsupported scheme; expected 
 INVALID_SEED = "DEMOBANK_SEED must be a non-negative integer"
 INVALID_ANCHOR_DATE = "DEMOBANK_ANCHOR_DATE must be a date in YYYY-MM-DD format"
 
+# Set in .env.example to other values than the code defaults: Compose exports
+# telemetry to the otel-lgtm container (#122).
+ENV_EXAMPLE_NOT_DEFAULTS = {
+    "OTEL_ENABLED": "true",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-lgtm:4318",
+}
+OTLP_ENDPOINT_REQUIRED = "OTEL_EXPORTER_OTLP_ENDPOINT is required when OTEL_ENABLED is true"
+
 # Backend variables (#4). DemoBank must ignore them.
 BACKEND_VARIABLES = {
     "DATABASE_URL": "MARKER-database-url",
@@ -74,6 +82,8 @@ def test_field_names_cover_the_documented_variables() -> None:
         "DEMOBANK_DATABASE_URL",
         "DEMOBANK_SEED",
         "DEMOBANK_ANCHOR_DATE",
+        "OTEL_ENABLED",
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
     ]
 
 
@@ -86,6 +96,8 @@ def test_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.demobank_database_url.get_secret_value() == DATABASE_URL
     assert settings.demobank_seed == 42
     assert settings.demobank_anchor_date is None
+    assert settings.otel_enabled is False
+    assert settings.otel_exporter_otlp_endpoint == ""
 
 
 def test_overrides_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -297,7 +309,7 @@ def test_env_example_carries_the_defaults_of_the_optional_variables() -> None:
     values = env_example_values()
 
     for field, info in Settings.model_fields.items():
-        if info.is_required():
+        if info.is_required() or env_name(field) in ENV_EXAMPLE_NOT_DEFAULTS:
             continue
         default = info.default
         if hasattr(default, "get_secret_value"):
@@ -514,3 +526,51 @@ def test_module_does_not_connect_to_the_database() -> None:
     assert result.returncode == 0
     assert result.stdout == "Configuration OK\n"
     assert result.stderr == ""
+
+
+# Telemetry (#122)
+
+
+def test_env_example_enables_telemetry_towards_the_otel_lgtm_container() -> None:
+    values = env_example_values()
+
+    for name, value in ENV_EXAMPLE_NOT_DEFAULTS.items():
+        assert values[name] == value
+
+
+def test_otel_settings_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEMOBANK_API_KEY", "k")
+    monkeypatch.setenv("OTEL_ENABLED", " TRUE ")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-lgtm:4318")
+
+    settings = get_settings()
+
+    assert settings.otel_enabled is True
+    assert settings.otel_exporter_otlp_endpoint == "http://otel-lgtm:4318"
+
+
+@pytest.mark.parametrize("value", ["true", "1"])
+def test_otel_enabled_without_an_endpoint_is_a_configuration_error(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("DEMOBANK_API_KEY", "k")
+
+    lines = error_lines(monkeypatch, OTEL_ENABLED=value, OTEL_EXPORTER_OTLP_ENDPOINT=" ")
+
+    assert lines == [OTLP_ENDPOINT_REQUIRED]
+
+
+def test_otel_enabled_that_is_not_a_boolean_is_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEMOBANK_API_KEY", "k")
+
+    lines = error_lines(monkeypatch, OTEL_ENABLED="MARKER-yes")
+
+    assert lines == ["OTEL_ENABLED must be true, false, 1 or 0"]
+
+
+def test_module_reports_otel_enabled_without_an_endpoint() -> None:
+    result = run_module({"DEMOBANK_API_KEY": API_KEY_MARKER, "OTEL_ENABLED": "true"})
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == f"{OTLP_ENDPOINT_REQUIRED}\n"
