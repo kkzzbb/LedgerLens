@@ -110,6 +110,11 @@ class FakeSession:
 @pytest.fixture
 def store(monkeypatch: pytest.MonkeyPatch) -> Store:
     """In-memory rows behind the repository functions the service calls."""
+    return fake_repositories(monkeypatch)
+
+
+def fake_repositories(monkeypatch: pytest.MonkeyPatch) -> Store:
+    """Replaces the repository functions the service calls with in-memory fakes."""
     data = Store()
 
     def upsert(

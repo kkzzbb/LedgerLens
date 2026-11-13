@@ -3,7 +3,7 @@
 `create_app()` reads no settings and opens no connection. The settings are
 checked when the application starts (its lifespan), so a server started with
 a missing or invalid configuration exits at once instead of serving requests
-that fail later:
+that fail later. The lifespan also sets up telemetry (`ledgerlens.telemetry`):
 
     uv run uvicorn --factory ledgerlens.api.app:create_app
 """
@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from ledgerlens import telemetry
 from ledgerlens.api import accounts, anomalies, health, reports, sync, transactions
 from ledgerlens.config import ConfigError, get_settings
 
@@ -46,12 +47,14 @@ class StartupError(RuntimeError):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Checks the configuration before the first request is served."""
+    """Checks the configuration, then sets up telemetry, before the first request is served."""
     try:
-        get_settings()
+        settings = get_settings()
     except ConfigError as exc:
         message = f"Invalid configuration:\n{exc}"
     else:
+        # Before the first database connection, so psycopg queries are traced.
+        telemetry.setup(settings)
         yield
         return
     # Raised outside the `except` block so the ConfigError is not chained.
@@ -69,4 +72,6 @@ def create_app() -> FastAPI:
     app.include_router(transactions.router)
     app.include_router(reports.router)
     app.include_router(anomalies.router)
+    # JSON logs and the HTTP instrumentation; the exporters come in the lifespan.
+    telemetry.instrument_app(app)
     return app

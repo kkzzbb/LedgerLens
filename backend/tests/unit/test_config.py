@@ -33,6 +33,13 @@ INTEGER_VARIABLES = [
     "ANOMALY_MIN_HISTORY_COUNT",
     "ANOMALY_BASELINE_DAYS",
 ]
+# Set in .env.example to other values than the code defaults: Compose exports
+# telemetry to the otel-lgtm container (#122).
+ENV_EXAMPLE_NOT_DEFAULTS = {
+    "OTEL_ENABLED": "true",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-lgtm:4318",
+}
+OTLP_ENDPOINT_REQUIRED = "OTEL_EXPORTER_OTLP_ENDPOINT is required when OTEL_ENABLED is true"
 AT_LEAST_ONE_VARIABLES = [
     name
     for name in INTEGER_VARIABLES
@@ -86,6 +93,7 @@ def test_field_names_cover_the_documented_variables() -> None:
         "FAILURE_STREAK_THRESHOLD",
         "ANTHROPIC_API_KEY",
         "AGENT_MODEL",
+        "OTEL_ENABLED",
         "OTEL_EXPORTER_OTLP_ENDPOINT",
         "ANOMALY_EVALUATION_WINDOW_DAYS",
         "ANOMALY_DUPLICATE_WINDOW_DAYS",
@@ -111,6 +119,7 @@ def test_defaults() -> None:
     assert settings.failure_streak_threshold == 3
     assert settings.anthropic_api_key.get_secret_value() == ""
     assert settings.agent_model == "claude-opus-5-5"
+    assert settings.otel_enabled is False
     assert settings.otel_exporter_otlp_endpoint == ""
     assert settings.anomaly_evaluation_window_days == 7
     assert settings.anomaly_duplicate_window_days == 3
@@ -133,6 +142,7 @@ def test_overrides_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None
         "FAILURE_STREAK_THRESHOLD": "9",
         "ANTHROPIC_API_KEY": "other-anthropic-key",
         "AGENT_MODEL": "some-other-model",
+        "OTEL_ENABLED": "true",
         "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-collector:4318",
         "ANOMALY_EVALUATION_WINDOW_DAYS": "14",
         "ANOMALY_DUPLICATE_WINDOW_DAYS": "0",
@@ -158,6 +168,7 @@ def test_overrides_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None
     assert settings.failure_streak_threshold == 9
     assert settings.anthropic_api_key.get_secret_value() == "other-anthropic-key"
     assert settings.agent_model == "some-other-model"
+    assert settings.otel_enabled is True
     assert settings.otel_exporter_otlp_endpoint == "http://otel-collector:4318"
     assert settings.anomaly_evaluation_window_days == 14
     assert settings.anomaly_duplicate_window_days == 0
@@ -501,7 +512,7 @@ def test_env_example_carries_the_defaults_of_the_optional_variables() -> None:
     )
 
     for field, info in Settings.model_fields.items():
-        if info.is_required():
+        if info.is_required() or env_name(field) in ENV_EXAMPLE_NOT_DEFAULTS:
             continue
         default = info.default
         if hasattr(default, "get_secret_value"):
@@ -563,3 +574,49 @@ def test_invalid_large_expense_amount_fails_without_the_value(
 
     assert_only_problem(lines, name)
     assert value not in lines[0]
+
+
+# Telemetry (#122)
+
+
+def test_env_example_enables_telemetry_towards_the_otel_lgtm_container() -> None:
+    lines = ENV_EXAMPLE.read_text().splitlines()
+    values = dict(line.split("=", 1) for line in lines if line and not line.startswith("#"))
+
+    for name, value in ENV_EXAMPLE_NOT_DEFAULTS.items():
+        assert values[name] == value
+        index = next(i for i, line in enumerate(lines) if line.startswith(f"{name}="))
+        assert lines[index - 1].startswith("#"), name
+
+
+@pytest.mark.usefixtures("required")
+@pytest.mark.parametrize("value", ["true", "TRUE", "1"])
+def test_otel_enabled_without_an_endpoint_is_a_configuration_error(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    lines = error_lines(monkeypatch, OTEL_ENABLED=value, OTEL_EXPORTER_OTLP_ENDPOINT="  ")
+
+    assert lines == [OTLP_ENDPOINT_REQUIRED]
+
+
+@pytest.mark.usefixtures("required")
+@pytest.mark.parametrize("value", ["false", "0"])
+def test_otel_disabled_needs_no_endpoint(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("OTEL_ENABLED", value)
+
+    assert get_settings().otel_enabled is False
+
+
+@pytest.mark.usefixtures("required")
+def test_otel_enabled_that_is_not_a_boolean_is_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
+    lines = error_lines(monkeypatch, OTEL_ENABLED="MARKER-yes")
+
+    assert lines == ["OTEL_ENABLED must be true, false, 1 or 0"]
+
+
+def test_module_reports_otel_enabled_without_an_endpoint() -> None:
+    result = run_module({**SECRET_MARKERS, "OTEL_ENABLED": "true"})
+
+    assert result.returncode == 1
+    assert result.stderr == f"{OTLP_ENDPOINT_REQUIRED}\n"
+    assert result.stdout == ""

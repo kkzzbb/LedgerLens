@@ -11,12 +11,20 @@ After every account, the two anomaly rules run once over all accounts, each in
 its own transaction. A rule that raises rolls back only its own flags: the
 result records the exception class name and the sync goes on.
 
+Telemetry (#122), through the `opentelemetry-api` only (a no-op until the
+application installs providers): one `sync account` span per account, one
+`anomaly rule` span per rule, the `ledgerlens.sync` metrics and one
+`sync finished` (or `sync failed`) log line per run. Every attribute is a
+status, an outcome, a rule name, an error kind or a count: never an account
+id, a transaction field or an amount.
+
 The account row is the only sync record (`docs/scope.md`): no job table, no
 retry. `last_sync_error` holds an error kind or rejection counts, never a field
 value, a response body or a secret.
 """
 
 import logging
+import time
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -24,6 +32,8 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any, Final
 
+from opentelemetry import metrics, trace
+from opentelemetry.trace import Span, StatusCode
 from sqlalchemy.orm import Session
 
 from ledgerlens.config import Settings
@@ -45,6 +55,24 @@ FAILED: Final = "failed"
 ACCOUNT_MISMATCH: Final = "account_mismatch"
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer("ledgerlens.sync")
+meter = metrics.get_meter("ledgerlens.sync")
+
+# In Prometheus: ledgerlens_sync_runs_total{outcome}, ledgerlens_sync_duration_seconds_*,
+# ledgerlens_sync_transactions_total{result} and ledgerlens_anomaly_flags_total{rule}.
+sync_runs = meter.create_counter(
+    "ledgerlens.sync.runs", description="Sync runs, by outcome (succeeded, ...)"
+)
+sync_duration = meter.create_histogram(
+    "ledgerlens.sync.duration", unit="s", description="Duration of a sync run, by outcome"
+)
+sync_transactions = meter.create_counter(
+    "ledgerlens.sync.transactions",
+    description="Transactions a sync run created, skipped or rejected",
+)
+anomaly_flags = meter.create_counter(
+    "ledgerlens.anomaly.flags", description="Anomaly flags created, by rule"
+)
 
 Now = Callable[[], datetime]
 SessionFactory = Callable[[], Session]
@@ -104,7 +132,76 @@ def run_sync(
     """Syncs every account once, then runs the anomaly rules once.
 
     A `ConnectorError` from `list_accounts()` propagates, and no rule runs.
+    Every run, also one that raises, is counted in the `ledgerlens.sync`
+    metrics with its outcome.
     """
+    started = time.perf_counter()
+    outcome = FAILED
+    try:
+        result = _run(connector, session_factory, now, settings)
+    except ConnectorError as error:
+        _failed(error.kind)
+        raise
+    except Exception as error:
+        _failed(type(error).__name__)
+        raise
+    else:
+        outcome = run_outcome(result)
+        _finished(result, outcome)
+        return result
+    finally:
+        sync_runs.add(1, {"outcome": outcome})
+        sync_duration.record(time.perf_counter() - started, {"outcome": outcome})
+
+
+def run_outcome(result: SyncResult) -> str:
+    """`failed` when every listed account failed, `succeeded_with_errors` when
+    an account or a rule failed, `succeeded` otherwise (also with no account)."""
+    failed_accounts = sum(account.status == FAILED for account in result.accounts)
+    if result.accounts and failed_accounts == len(result.accounts):
+        return FAILED
+    if failed_accounts or any(rule.error is not None for rule in result.anomalies):
+        return SUCCEEDED_WITH_ERRORS
+    return SUCCEEDED
+
+
+def _finished(result: SyncResult, outcome: str) -> None:
+    created = sum(account.created_count for account in result.accounts)
+    skipped = sum(account.skipped_count for account in result.accounts)
+    rejected = sum(account.rejected_count for account in result.accounts)
+    flags = sum(rule.created_count for rule in result.anomalies)
+    for name, count in (("created", created), ("skipped", skipped), ("rejected", rejected)):
+        sync_transactions.add(count, {"result": name})
+    for rule in result.anomalies:
+        anomaly_flags.add(rule.created_count, {"rule": rule.rule})
+    # Counts only. `created` is a reserved `LogRecord` attribute, hence `*_count`.
+    logger.info(
+        "sync finished",
+        extra={
+            "outcome": outcome,
+            "accounts": len(result.accounts),
+            "created_count": created,
+            "skipped_count": skipped,
+            "rejected_count": rejected,
+            "flags": flags,
+        },
+    )
+
+
+def _failed(kind: str) -> None:
+    """Marks the current (request) span and logs the error kind, never a value."""
+    span = trace.get_current_span()
+    span.set_attribute("ledgerlens.sync.error_kind", kind)
+    span.set_status(StatusCode.ERROR, kind)
+    logger.warning("sync failed: %s", kind, extra={"outcome": FAILED, "error_kind": kind})
+
+
+def _run(
+    connector: BankConnector,
+    session_factory: SessionFactory,
+    now: Now,
+    settings: Settings,
+) -> SyncResult:
     listed = connector.list_accounts()
     with session_factory() as session, session.begin():
         accounts = [_upsert(session, record) for record in listed]
@@ -148,6 +245,22 @@ def _rules() -> list[tuple[str, Rule]]:
 def _run_rule(
     session_factory: SessionFactory, name: str, rule: Rule, today: date, settings: Settings
 ) -> AnomalyRuleResult:
+    with tracer.start_as_current_span(
+        "anomaly rule",
+        attributes={"ledgerlens.anomaly.rule": name},
+        record_exception=False,
+        set_status_on_exception=False,
+    ) as span:
+        result = _apply_rule(session_factory, name, rule, today, settings)
+        span.set_attribute("ledgerlens.anomaly.created_count", result.created_count)
+        if result.error is not None:
+            span.set_status(StatusCode.ERROR, result.error)
+        return result
+
+
+def _apply_rule(
+    session_factory: SessionFactory, name: str, rule: Rule, today: date, settings: Settings
+) -> AnomalyRuleResult:
     try:
         with session_factory() as session, session.begin():
             created = rule(session, today, settings)
@@ -179,6 +292,31 @@ def _upsert(session: Session, record: dict[str, Any]) -> _Account:
 
 
 def _sync_account(
+    connector: BankConnector,
+    session_factory: SessionFactory,
+    now: Now,
+    page_size: int,
+    account: _Account,
+) -> AccountSyncResult:
+    # No account id on the span: only the status and the counts.
+    with tracer.start_as_current_span(
+        "sync account", record_exception=False, set_status_on_exception=False
+    ) as span:
+        result = _sync_one_account(connector, session_factory, now, page_size, account)
+        _annotate(span, result)
+        return result
+
+
+def _annotate(span: Span, result: AccountSyncResult) -> None:
+    span.set_attribute("ledgerlens.sync.status", result.status)
+    span.set_attribute("ledgerlens.sync.created_count", result.created_count)
+    span.set_attribute("ledgerlens.sync.skipped_count", result.skipped_count)
+    span.set_attribute("ledgerlens.sync.rejected_count", result.rejected_count)
+    if result.status == FAILED and result.error is not None:
+        span.set_status(StatusCode.ERROR, result.error)
+
+
+def _sync_one_account(
     connector: BankConnector,
     session_factory: SessionFactory,
     now: Now,

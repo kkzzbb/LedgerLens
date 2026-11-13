@@ -6,7 +6,9 @@ Compose (or `uv run --env-file`) puts the values in the process environment.
 
 Each field is read from the environment variable with the field's name in
 upper case (`demobank_api_key` from `DEMOBANK_API_KEY`). A value that is empty
-or only whitespace counts as unset. No backend variable is read.
+or only whitespace counts as unset. No backend variable is read, except the
+two telemetry variables both services share (`OTEL_ENABLED`,
+`OTEL_EXPORTER_OTLP_ENDPOINT`).
 
 `uv run python -m demobank.config` checks the configuration and prints
 `Configuration OK`, or one line per problem on stderr with exit status 1.
@@ -24,6 +26,7 @@ from pydantic import (
     SecretStr,
     ValidationError,
     field_validator,
+    model_validator,
 )
 from pydantic.fields import FieldInfo
 from pydantic_core import ErrorDetails, PydanticCustomError
@@ -37,10 +40,13 @@ _UNSUPPORTED_SCHEME = "unsupported_scheme"
 _INVALID_URL = "invalid_url"
 _NOT_SEED = "not_seed"
 _NOT_DATE = "not_date"
+_NOT_BOOLEAN = "not_boolean"
+_OTLP_ENDPOINT_REQUIRED = "otlp_endpoint_required"
 
 # ASCII digits only: `int()` would also take "+5", "1_000" or other digits.
 _SEED = re.compile(r"[0-9]+", re.ASCII)
 _DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", re.ASCII)
+_BOOLEANS = {"true": True, "1": True, "false": False, "0": False}
 
 
 class ConfigError(Exception):
@@ -74,8 +80,18 @@ def _parse_date(value: Any) -> Any:
     return value
 
 
+def _parse_bool(value: Any) -> Any:
+    if isinstance(value, str):
+        parsed = _BOOLEANS.get(value.strip().lower())
+        if parsed is None:
+            raise PydanticCustomError(_NOT_BOOLEAN, "not a boolean")
+        return parsed
+    return value
+
+
 _Seed = Annotated[int, BeforeValidator(_parse_seed)]
 _AnchorDate = Annotated[date | None, BeforeValidator(_parse_date)]
+_EnvBool = Annotated[bool, BeforeValidator(_parse_bool)]
 
 
 def env_name(field_name: str) -> str:
@@ -116,6 +132,11 @@ class Settings(BaseSettings):
     # unset anchor date means "the date of first generation".
     demobank_seed: _Seed = 42
     demobank_anchor_date: _AnchorDate = None
+    # Optional: telemetry (#122), shared with the backend. Export traces,
+    # metrics and logs over OTLP/HTTP to this base URL; the endpoint is
+    # required when OTEL_ENABLED is true.
+    otel_enabled: _EnvBool = False
+    otel_exporter_otlp_endpoint: str = ""
 
     @field_validator("demobank_database_url")
     @classmethod
@@ -131,6 +152,12 @@ class Settings(BaseSettings):
         if kind is not None:
             raise PydanticCustomError(kind, "invalid database URL")
         return url
+
+    @model_validator(mode="after")
+    def _otlp_endpoint_when_enabled(self) -> "Settings":
+        if self.otel_enabled and not self.otel_exporter_otlp_endpoint.strip():
+            raise PydanticCustomError(_OTLP_ENDPOINT_REQUIRED, "endpoint required")
+        return self
 
     @classmethod
     def settings_customise_sources(
@@ -149,6 +176,8 @@ class Settings(BaseSettings):
 def _problem(error: ErrorDetails) -> str:
     """One line for one validation error, built without the offending value."""
     kind = error["type"]
+    if kind == _OTLP_ENDPOINT_REQUIRED:
+        return "OTEL_EXPORTER_OTLP_ENDPOINT is required when OTEL_ENABLED is true"
     name = env_name(str(error["loc"][0])) if error["loc"] else "Configuration"
     if kind == "missing":
         return f"{name} is required but not set (an empty or blank value counts as unset)"
@@ -158,6 +187,8 @@ def _problem(error: ErrorDetails) -> str:
         return f"{name} must be a non-negative integer"
     if kind == _NOT_DATE:
         return f"{name} must be a date in YYYY-MM-DD format"
+    if kind == _NOT_BOOLEAN:
+        return f"{name} must be true, false, 1 or 0"
     return f"{name} has an invalid value"
 
 
