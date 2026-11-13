@@ -73,6 +73,20 @@ sync_transactions = meter.create_counter(
 anomaly_flags = meter.create_counter(
     "ledgerlens.anomaly.flags", description="Anomaly flags created, by rule"
 )
+OUTCOMES: Final = (SUCCEEDED, SUCCEEDED_WITH_ERRORS, FAILED)
+
+
+def start_run_counters() -> None:
+    """Exports `ledgerlens.sync.runs` at 0 for every outcome, before any run.
+
+    Prometheus' `increase()` counts nothing for a series whose first sample
+    already holds its final value, so a `failed` series that first appeared
+    at 1 would never fire the "LedgerLens sync failing" alert (#123). Called
+    once the meter provider is installed: earlier measurements are dropped.
+    """
+    for outcome in OUTCOMES:
+        sync_runs.add(0, {"outcome": outcome})
+
 
 Now = Callable[[], datetime]
 SessionFactory = Callable[[], Session]

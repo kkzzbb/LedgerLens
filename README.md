@@ -159,6 +159,43 @@ To turn the export off, set `OTEL_ENABLED=false` in `.env`: nothing is
 sent and the JSON logs still go to stdout. A backend or DemoBank started
 on the host (outside Compose) sends to `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`.
 
+### Alert
+
+The alert rule **LedgerLens sync failing** is provisioned from
+`observability/grafana/provisioning/alerting/ledgerlens-sync.yaml`, which
+Compose mounts read-only into `otel-lgtm`: it is listed under
+**Alerting → Alert rules** on http://localhost:3000 (folder `LedgerLens`)
+right after `docker compose up --build`. It queries the Prometheus data
+source:
+
+```promql
+sum(increase(ledgerlens_sync_runs_total{outcome="failed"}[10m])) > 0
+```
+
+It is evaluated every 1 minute with a pending period of 1 minute, so it
+fires when a sync ended `failed` in the last 10 minutes. Before any sync
+it is Normal, and a missing metric also counts as Normal (no-data state
+OK), never "No data" or "Error". A sync that ends
+`succeeded_with_errors` (one account or one anomaly rule failed) has
+another `outcome` and does not fire it. Its labels are `service_name` and
+`outcome` only, with no customer data, and no contact point is configured:
+the alert is only shown in Grafana.
+
+To see it fire:
+
+1. `docker compose stop demobank`
+2. Click **Sync now** (or `curl -X POST http://localhost:8000/api/sync`):
+   the API answers 502
+3. Within 3 minutes the rule goes Pending, then Firing
+
+To recover, `docker compose start demobank` and sync again: the rule goes
+back to Normal once the 10-minute window holds no failed run (about 11
+minutes after the failed sync).
+
+The backend exports `ledgerlens_sync_runs_total` at 0 for every outcome
+when it starts. Without that zero sample, `increase()` would see the first
+failure after a start as a series already at 1 and count no increase.
+
 ## API
 
 One line per route; `http://localhost:8000/docs` has the request and
@@ -203,6 +240,7 @@ uv run python -m ledgerlens.sync
   [`demobank/README.md`](demobank/README.md)
 - `frontend/` - the UI (React, Vite)
 - `docs/` - scope, accounting rules and process
+- `observability/` - the Grafana alert rule, provisioned into `otel-lgtm`
 - `docker-compose.yml` - the 5 local services
 - `Makefile` - install, lint, type check, test and migrate
 - `scripts/with-test-db.sh` - starts a throwaway PostgreSQL for `make test`
