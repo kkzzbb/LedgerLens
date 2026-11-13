@@ -129,7 +129,7 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "showPercentChange": false,
         "wideLayout": true
       },
