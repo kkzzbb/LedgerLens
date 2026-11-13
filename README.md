@@ -129,7 +129,10 @@ HTTP latency p95 by route, recent sync traces, recent sync log lines, and
 the alert "LedgerLens sync failing". It is provisioned from
 `observability/grafana/dashboards/ledgerlens-sync.json` (also listed under
 **Dashboards → LedgerLens**, next to the alert rule) and refreshes every
-30 seconds. Before the first sync, panels 2 to 4 show `No sync yet`.
+30 seconds. A new sync shows up in the metric and log panels within about
+30 seconds, but in "Recent sync traces" only after about a minute,
+because Tempo's search lists a new trace only after about 30–40 seconds.
+Before the first sync, panels 2 to 4 show `No sync yet`.
 
 - Panels 1 to 4 count since the backend started: they restart from 0
   when the backend restarts (for up to 5 minutes after a restart the
