@@ -56,3 +56,12 @@ outcome, and the **Trace** link under *Links* opens the trace above.
 (the `failed` run is a sync with DemoBank stopped).
 
 ![Sync runs by outcome in Prometheus](screenshots/grafana-sync-metrics.png)
+
+### The sync alert firing
+
+The provisioned rule **LedgerLens sync failing** (Alerting → Alert rules)
+in state Firing, after a sync with DemoBank stopped: the query, its value
+over the last 10 minutes and the threshold. The README section
+"Observability → Alert" says how to make it fire and how it recovers.
+
+![The LedgerLens sync failing alert rule in Firing state](screenshots/grafana-alert-firing.png)
